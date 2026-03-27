@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-3">
+  <div class="dashboard-hero mb-4">
+    <div>
+      <h1 class="mb-2">لوحة الكافتيريا</h1>
+      <p class="mb-0 text-white-50">إدارة الطلبات، تأكيد الطلب، طباعة الفاتورة، ومراقبة شغل اليوم.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a href="{{ url_for('manage_menu') }}" class="btn btn-light rounded-pill px-4">إدارة المنيو</a>
+      <a href="{{ url_for('reports') }}" class="btn btn-warning rounded-pill px-4">تقارير الأيام</a>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-lg col-md-4 col-6"><div class="stat-card"><span>قيد الانتظار</span><strong>{{ stats.pending }}</strong></div></div>
+    <div class="col-lg col-md-4 col-6"><div class="stat-card"><span>تم تأكيدها</span><strong>{{ stats.confirmed }}</strong></div></div>
+    <div class="col-lg col-md-4 col-6"><div class="stat-card"><span>جاهزة</span><strong>{{ stats.ready }}</strong></div></div>
+    <div class="col-lg col-md-4 col-6"><div class="stat-card"><span>ملغية</span><strong>{{ stats.cancelled }}</strong></div></div>
+    <div class="col-lg col-md-4 col-6"><div class="stat-card"><span>إجمالي الطلبات</span><strong>{{ stats.total_orders }}</strong></div></div>
+    <div class="col-lg col-md-4 col-6"><div class="stat-card"><span>مبيعات اليوم</span><strong>{{ '%.2f'|format(stats.sales_today) }} د.أ</strong></div></div>
+  </div>
+
+  <div class="filter-bar mb-4">
+    <a href="{{ url_for('admin_dashboard') }}" class="filter-pill {% if not active_status %}active{% endif %}">الكل</a>
+    <a href="{{ url_for('admin_dashboard', status='pending') }}" class="filter-pill {% if active_status == 'pending' %}active{% endif %}">قيد الانتظار</a>
+    <a href="{{ url_for('admin_dashboard', status='confirmed') }}" class="filter-pill {% if active_status == 'confirmed' %}active{% endif %}">مؤكدة</a>
+    <a href="{{ url_for('admin_dashboard', status='ready') }}" class="filter-pill {% if active_status == 'ready' %}active{% endif %}">جاهزة</a>
+    <a href="{{ url_for('admin_dashboard', status='cancelled') }}" class="filter-pill {% if active_status == 'cancelled' %}active{% endif %}">ملغية</a>
+  </div>
+
+  <div class="row g-4">
+    {% for order in orders %}
+    <div class="col-12">
+      <div class="order-card">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+          <div>
+            <div class="small text-muted">طلب رقم #{{ order.id }}</div>
+            <h4 class="mb-1">{{ order.student_name }}</h4>
+            <div class="text-muted">{{ order.phone }} • {{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+          </div>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="status-pill status-{{ order.status }}">
+              {% if order.status == 'pending' %}قيد الانتظار{% elif order.status == 'confirmed' %}تم التأكيد{% elif order.status == 'ready' %}جاهز{% else %}ملغي{% endif %}
+            </span>
+            <span class="price-tag">{{ '%.2f'|format(order.total) }} د.أ</span>
+          </div>
+        </div>
+
+        <div class="items-summary mt-3">
+          {% for item in order.items %}
+          <div class="summary-line">
+            <span>{{ item.quantity }} × {{ item.item_name }}</span>
+            <strong>{{ '%.2f'|format(item.unit_price * item.quantity) }} د.أ</strong>
+          </div>
+          {% endfor %}
+        </div>
+
+        {% if order.notes %}
+          <div class="note-box mt-3">ملاحظات: {{ order.notes }}</div>
+        {% endif %}
+
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          {% if order.status == 'pending' %}
+          <form method="POST" action="{{ url_for('confirm_order', order_id=order.id) }}">
+            <button class="btn btn-warning rounded-pill px-4">تأكيد + طباعة</button>
+          </form>
+          {% endif %}
+          {% if order.status in ['pending', 'confirmed'] %}
+          <form method="POST" action="{{ url_for('ready_order', order_id=order.id) }}">
+            <button class="btn btn-success rounded-pill px-4">تجهيز الطلب</button>
+          </form>
+          {% endif %}
+          {% if order.status != 'cancelled' %}
+          <form method="POST" action="{{ url_for('cancel_order', order_id=order.id) }}">
+            <button class="btn btn-outline-danger rounded-pill px-4">إلغاء</button>
+          </form>
+          {% endif %}
+          <a href="{{ url_for('print_receipt', order_id=order.id) }}" class="btn btn-outline-dark rounded-pill px-4">عرض الفاتورة</a>
+        </div>
+      </div>
+    </div>
+    {% else %}
+      <div class="col-12"><div class="empty-box">لا يوجد طلبات حالياً.</div></div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
