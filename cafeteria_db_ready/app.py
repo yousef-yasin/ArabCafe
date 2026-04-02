@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from functools import wraps
 from collections import defaultdict
 from io import BytesIO
@@ -6,7 +7,7 @@ import json
 import mimetypes
 import os
 
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file, abort
+from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_file, abort, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, inspect, text
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -17,12 +18,21 @@ DB_PATH = os.path.join(BASE_DIR, 'cafeteria.db')
 SEED_DIR = os.path.join(BASE_DIR, 'seed')
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'arab-cafe-secret-key'
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-change-me')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024
 
 db = SQLAlchemy(app)
+
+
+JORDAN_TZ = ZoneInfo('Asia/Amman')
+ADMIN_SECRET_PATH = 'adminarabcafeaau123'
+
+
+def jordan_now():
+    return datetime.now(JORDAN_TZ).replace(tzinfo=None)
+
 
 
 class Admin(db.Model):
@@ -37,7 +47,7 @@ class SiteAsset(db.Model):
     filename = db.Column(db.String(255), nullable=True)
     mime_type = db.Column(db.String(100), nullable=True)
     data = db.Column(db.LargeBinary, nullable=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=jordan_now, onupdate=jordan_now)
 
 
 class Category(db.Model):
@@ -66,10 +76,11 @@ class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_name = db.Column(db.String(120), nullable=False)
     phone = db.Column(db.String(30), nullable=False)
+    building = db.Column(db.String(10), nullable=False, default='I')
     notes = db.Column(db.String(255), nullable=True)
     status = db.Column(db.String(30), default='pending')
     total = db.Column(db.Float, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=jordan_now)
     confirmed_at = db.Column(db.DateTime, nullable=True)
     ready_at = db.Column(db.DateTime, nullable=True)
     items = db.relationship('OrderItem', backref='order', cascade='all, delete-orphan', lazy=True)
@@ -198,7 +209,12 @@ def apply_schema_fixes():
         alter_statements.append('ALTER TABLE menu_item ADD COLUMN image_filename VARCHAR(255)')
     for stmt in alter_statements:
         db.session.execute(text(stmt))
-    if alter_statements:
+
+    order_cols = {c['name'] for c in inspector.get_columns('order')}
+    if 'building' not in order_cols:
+        db.session.execute(text("ALTER TABLE 'order' ADD COLUMN building VARCHAR(10) DEFAULT 'I' NOT NULL"))
+
+    if alter_statements or 'building' not in order_cols:
         db.session.commit()
 
 
@@ -219,8 +235,16 @@ def seed_site_asset(key, seed_filename):
 
 def seed_data():
     if not Admin.query.first():
-        db.session.add(Admin(username='admin', password_hash=generate_password_hash('admin123')))
+        admin_username = os.getenv('ADMIN_USERNAME')
+        admin_password = os.getenv('ADMIN_PASSWORD')
 
+        if admin_username and admin_password:
+            db.session.add(
+                Admin(
+                    username=admin_username,
+                    password_hash=generate_password_hash(admin_password)
+                )
+            )
     seed_site_asset('logo', 'logo.png')
     seed_site_asset('menu_board', 'menu-board.png')
 
@@ -265,7 +289,30 @@ def seed_data():
 
     db.session.commit()
 
+@app.route(f'/{ADMIN_SECRET_PATH}/orders_partial')
+@admin_required
+def admin_orders_partial():
+    status_filter = request.args.get("status", "all")
 
+    query = Order.query.order_by(Order.created_at.desc())
+
+    if status_filter != "all":
+        query = query.filter_by(status=status_filter)
+
+    orders = query.all()
+
+    return render_template("partials/orders_list.html", orders=orders)
+
+@app.route(f'/{ADMIN_SECRET_PATH}/orders_meta')
+@admin_required
+def admin_orders_meta():
+    latest_order = Order.query.order_by(Order.created_at.desc()).first()
+    return jsonify({
+        'latest_order_id': latest_order.id if latest_order else 0,
+        'pending_count': Order.query.filter_by(status='pending').count(),
+        'confirmed_count': Order.query.filter_by(status='confirmed').count(),
+        'ready_count': Order.query.filter_by(status='ready').count()
+    })
 def get_upload_blob(file_storage):
     if not file_storage or not file_storage.filename:
         return None, None, None
@@ -282,6 +329,8 @@ def inject_globals():
     return {
         'site_name': 'Arab Cafe',
         'student_order_url': url_for('index'),
+        'jordan_now_value': jordan_now(),
+        'jordan_timezone_label': 'Asia/Amman',
     }
 
 
@@ -320,11 +369,12 @@ def index():
 def place_order():
     student_name = request.form.get('student_name', '').strip()
     phone = request.form.get('phone', '').strip()
+    building = request.form.get('building', '').strip().upper()
     notes = request.form.get('notes', '').strip()
     raw_items = request.form.get('cart_payload', '').strip()
 
-    if not student_name or not phone or not raw_items:
-        flash('لازم تدخل الاسم ورقم التلفون وتختار طلب واحد على الأقل.', 'danger')
+    if not student_name or not phone or not raw_items or building not in {'I', 'B'}:
+        flash('لازم تدخل الاسم ورقم التلفون وتختار المبنى وتختار طلب واحد على الأقل.', 'danger')
         return redirect(url_for('index'))
 
     try:
@@ -357,7 +407,7 @@ def place_order():
         flash('المنتجات المختارة غير صالحة أو غير متاحة حالياً.', 'danger')
         return redirect(url_for('index'))
 
-    order = Order(student_name=student_name, phone=phone, notes=notes, total=round(total, 2))
+    order = Order(student_name=student_name, phone=phone, building=building, notes=notes, total=round(total, 2))
     db.session.add(order)
     db.session.flush()
 
@@ -368,7 +418,7 @@ def place_order():
     return render_template('order_success.html', order=order)
 
 
-@app.route('/admin/login', methods=['GET', 'POST'])
+@app.route(f'/{ADMIN_SECRET_PATH}', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
@@ -383,14 +433,14 @@ def admin_login():
     return render_template('admin_login.html')
 
 
-@app.route('/admin/logout')
+@app.route(f'/{ADMIN_SECRET_PATH}/logout')
 def admin_logout():
     session.clear()
     flash('تم تسجيل الخروج.', 'info')
     return redirect(url_for('admin_login'))
 
 
-@app.route('/admin')
+@app.route(f'/{ADMIN_SECRET_PATH}/dashboard')
 @admin_required
 def admin_dashboard():
     status = request.args.get('status')
@@ -406,17 +456,17 @@ def admin_dashboard():
         'total_orders': Order.query.count(),
         'sales_today': round(
             db.session.query(func.coalesce(func.sum(Order.total), 0.0))
-            .filter(func.date(Order.created_at) == datetime.utcnow().date().isoformat())
+            .filter(func.date(Order.created_at) == jordan_now().date().isoformat())
             .scalar() or 0.0, 2
         )
     }
     return render_template('admin_dashboard.html', orders=orders, stats=stats, active_status=status)
 
 
-@app.route('/admin/reports')
+@app.route(f'/{ADMIN_SECRET_PATH}/reports')
 @admin_required
 def reports():
-    daily_orders = Order.query.order_by(Order.created_at.desc()).all()
+    daily_orders = Order.query.filter(Order.status != 'cancelled').order_by(Order.created_at.desc()).all()
     grouped = defaultdict(list)
     for order in daily_orders:
         day = order.created_at.strftime('%Y-%m-%d')
@@ -436,28 +486,28 @@ def reports():
     return render_template('reports.html', reports_data=reports_data, grand_total=grand_total)
 
 
-@app.route('/admin/order/<int:order_id>/confirm', methods=['POST'])
+@app.route(f'/{ADMIN_SECRET_PATH}/order/<int:order_id>/confirm', methods=['POST'])
 @admin_required
 def confirm_order(order_id):
     order = Order.query.get_or_404(order_id)
     order.status = 'confirmed'
-    order.confirmed_at = datetime.utcnow()
+    order.confirmed_at = jordan_now()
     db.session.commit()
     return redirect(url_for('print_receipt', order_id=order.id))
 
 
-@app.route('/admin/order/<int:order_id>/ready', methods=['POST'])
+@app.route(f'/{ADMIN_SECRET_PATH}/order/<int:order_id>/ready', methods=['POST'])
 @admin_required
 def ready_order(order_id):
     order = Order.query.get_or_404(order_id)
     order.status = 'ready'
-    order.ready_at = datetime.utcnow()
+    order.ready_at = jordan_now()
     db.session.commit()
     flash(f'تم تجهيز الطلب رقم #{order.id}', 'success')
     return redirect(url_for('admin_dashboard'))
 
 
-@app.route('/admin/order/<int:order_id>/cancel', methods=['POST'])
+@app.route(f'/{ADMIN_SECRET_PATH}/order/<int:order_id>/cancel', methods=['POST'])
 @admin_required
 def cancel_order(order_id):
     order = Order.query.get_or_404(order_id)
@@ -467,7 +517,17 @@ def cancel_order(order_id):
     return redirect(url_for('admin_dashboard'))
 
 
-@app.route('/admin/menu', methods=['GET', 'POST'])
+@app.route(f'/{ADMIN_SECRET_PATH}/orders/delete-all', methods=['POST'])
+@admin_required
+def delete_all_orders():
+    deleted_items = OrderItem.query.delete()
+    deleted_orders = Order.query.delete()
+    db.session.commit()
+    flash(f'تم حذف جميع الطلبات ({deleted_orders}) وكل العناصر التابعة إلها ({deleted_items}).', 'warning')
+    return redirect(url_for('admin_dashboard'))
+
+
+@app.route(f'/{ADMIN_SECRET_PATH}/menu', methods=['GET', 'POST'])
 @admin_required
 def manage_menu():
     categories = Category.query.order_by(Category.sort_order, Category.id).all()
@@ -523,7 +583,7 @@ def manage_menu():
     return render_template('manage_menu.html', categories=categories, items=items)
 
 
-@app.route('/admin/menu/<int:item_id>/edit', methods=['POST'])
+@app.route(f'/{ADMIN_SECRET_PATH}/menu/<int:item_id>/edit', methods=['POST'])
 @admin_required
 def edit_menu_item(item_id):
     item = MenuItem.query.get_or_404(item_id)
@@ -567,7 +627,7 @@ def edit_menu_item(item_id):
     return redirect(url_for('manage_menu'))
 
 
-@app.route('/admin/menu/<int:item_id>/toggle', methods=['POST'])
+@app.route(f'/{ADMIN_SECRET_PATH}/menu/<int:item_id>/toggle', methods=['POST'])
 @admin_required
 def toggle_menu_item(item_id):
     item = MenuItem.query.get_or_404(item_id)
@@ -577,7 +637,7 @@ def toggle_menu_item(item_id):
     return redirect(url_for('manage_menu'))
 
 
-@app.route('/admin/menu/<int:item_id>/delete', methods=['POST'])
+@app.route(f'/{ADMIN_SECRET_PATH}/menu/<int:item_id>/delete', methods=['POST'])
 @admin_required
 def delete_menu_item(item_id):
     item = MenuItem.query.get_or_404(item_id)
@@ -600,4 +660,4 @@ with app.app_context():
     seed_data()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))

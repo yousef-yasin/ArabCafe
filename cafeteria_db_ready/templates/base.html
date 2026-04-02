@@ -8,24 +8,18 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body>
-  <nav class="navbar navbar-expand-lg premium-nav sticky-top">
+<body class="{% if request.endpoint == 'index' %}student-layout{% endif %}">
+  <nav class="navbar navbar-expand-lg premium-nav {% if request.endpoint != 'index' %}sticky-top{% endif %}">
     <div class="container nav-shell">
       <a class="navbar-brand d-flex align-items-center gap-3 m-0" href="{{ url_for('index') }}">
         <img src="{{ url_for('media_logo') }}" class="brand-logo" alt="Arab Cafe Logo">
+        {% if request.endpoint != 'index' %}
         <div>
           <div class="fw-black brand-title">ARAB CAFE</div>
         </div>
-      </a>
-      <div class="nav-actions d-flex flex-wrap gap-2">
-        <a class="btn btn-nav btn-nav-primary btn-sm rounded-pill px-3" href="{{ url_for('index') }}">موقع الطلاب</a>
-        {% if session.get('admin_id') %}
-          <a class="btn btn-nav btn-sm rounded-pill px-3" href="{{ url_for('admin_dashboard') }}">لوحة الكافتيريا</a>
-          <a class="btn btn-dark btn-sm rounded-pill px-3" href="{{ url_for('admin_logout') }}">تسجيل خروج</a>
-        {% else %}
-          <a class="btn btn-nav btn-sm rounded-pill px-3" href="{{ url_for('admin_login') }}">دخول الكافتيريا</a>
         {% endif %}
-      </div>
+      </a>
+      
     </div>
   </nav>
 
