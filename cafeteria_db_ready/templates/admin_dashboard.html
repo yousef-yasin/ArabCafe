@@ -47,6 +47,7 @@
 {% block scripts %}
 <script>
   const STORAGE_KEY = "cafeteria_seen_order_ids";
+  const ALERTS_STORAGE_KEY = "cafeteria_alerts_enabled";
   const DEFAULT_TITLE = document.title;
   let audioCtx = null;
   let alertsEnabled = false;
@@ -79,7 +80,7 @@
     const button = document.getElementById("enable-sound-btn");
     if (!button) return;
 
-    button.textContent = "تفعيل الصوت والإشعارات";
+    button.textContent = alertsEnabled ? "الإشعارات مفعلة" : "تفعيل الصوت والإشعارات";
 
     if (alertsEnabled) {
       button.classList.remove("btn-outline-secondary");
@@ -108,6 +109,10 @@
     return permission === "granted";
   }
 
+  function persistAlertsState() {
+    localStorage.setItem(ALERTS_STORAGE_KEY, alertsEnabled ? "true" : "false");
+  }
+
   async function toggleAlerts() {
     try {
       if (!alertsEnabled) {
@@ -120,6 +125,7 @@
       } else {
         alertsEnabled = false;
       }
+      persistAlertsState();
       syncAlertButton();
     } catch (error) {
       console.error("Alert toggle failed:", error);
@@ -347,8 +353,12 @@ document.addEventListener("DOMContentLoaded", () => {
       saveSeenOrders(initialOrderIds);
     }
 
-    alertsEnabled = false;
+    alertsEnabled = localStorage.getItem(ALERTS_STORAGE_KEY) === "true";
     syncAlertButton();
+
+    if (alertsEnabled) {
+      ensureAudioReady().catch((error) => console.warn("Audio restore failed:", error));
+    }
 
     scheduleJordan7pmReload();
 
