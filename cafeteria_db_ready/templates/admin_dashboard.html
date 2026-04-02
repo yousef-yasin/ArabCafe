@@ -27,17 +27,9 @@
 
   <div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4" role="alert">
     <div>
-      <strong>تنبيه الطلبات:</strong> اضغط الزر مرة واحدة لتفعيل الصوت والإشعارات عند وصول طلبات جديدة. بعد التفعيل سيبقى الزر أخضر، وسيظهر تنبيه عند وصول طلب سواء كنت داخل الصفحة أو خارجها طالما التبويب مفتوح. ويتم تحديث الصفحة تلقائياً يومياً الساعة 7:00 مساءً بتوقيت الأردن.
+      <strong>تنبيه الطلبات:</strong> اضغط الزر مرة واحدة لتفعيل الصوت وإشعارات المتصفح عند وصول طلبات جديدة. ويتم تحديث الصفحة تلقائياً يومياً الساعة 7:00 مساءً بتوقيت الأردن.
     </div>
-    <button type="button" class="btn btn-outline-secondary rounded-pill px-4" id="enable-sound-btn" aria-pressed="false">تفعيل الصوت والإشعارات</button>
-  </div>
-
-  <div id="live-order-alert" class="alert alert-success shadow-sm d-none align-items-center justify-content-between gap-2 mb-4" role="alert" aria-live="assertive">
-    <div>
-      <strong>وصل طلب جديد الآن</strong>
-      <div class="small" id="live-order-alert-text">سيظهر هنا رقم الطلب واسم الطالب.</div>
-    </div>
-    <button type="button" class="btn btn-sm btn-success rounded-pill px-3" id="dismiss-live-alert">تم</button>
+    <button type="button" class="btn btn-outline-secondary rounded-pill px-4" id="enable-sound-btn">تفعيل الصوت والإشعارات</button>
   </div>
 
  <div class="filter-bar mb-4">
@@ -79,26 +71,6 @@
     }).filter((order) => order.id);
   }
 
-
-  function getOrderIdsFromHtml(html) {
-    return getOrderDataFromHtml(html).map((order) => order.id);
-  }
-
-  function showLiveOrderAlert(orders) {
-    const alertBox = document.getElementById("live-order-alert");
-    const alertText = document.getElementById("live-order-alert-text");
-    if (!alertBox || !alertText || !orders.length) return;
-
-    const latestOrder = orders[0];
-    const names = orders.map((order) => `#${order.id}${order.studentName ? ` - ${order.studentName}` : ""}`);
-    alertText.textContent = orders.length === 1
-      ? `وصل ${names[0]}${latestOrder.building ? ` من المبنى ${latestOrder.building}` : ""}.`
-      : `وصلت ${orders.length} طلبات جديدة: ${names.join("، ")}`;
-
-    alertBox.classList.remove("d-none");
-    alertBox.classList.add("d-flex");
-  }
-
   function loadSeenOrders() {
     try {
       return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
@@ -124,12 +96,10 @@
 
     if (alertsEnabled) {
       button.textContent = "الإشعارات مفعلة";
-      button.setAttribute("aria-pressed", "true");
       button.classList.remove("btn-outline-secondary");
       button.classList.add("btn-success");
     } else {
       button.textContent = "تفعيل الصوت والإشعارات";
-      button.setAttribute("aria-pressed", "false");
       button.classList.remove("btn-success");
       button.classList.add("btn-outline-secondary");
     }
@@ -209,6 +179,7 @@
     if (!alertsEnabled) return;
     if (!("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
+    if (!document.hidden) return;
 
     const bodyParts = [];
     if (order.studentName) bodyParts.push(`الاسم: ${order.studentName}`);
@@ -265,7 +236,6 @@
 
       if (newCount > 0) {
         playNotificationSound();
-        showLiveOrderAlert(unseenOrders);
         unseenOrders.forEach(showOrderNotification);
       }
 
@@ -409,16 +379,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const enableSoundButton = document.getElementById("enable-sound-btn");
     if (enableSoundButton) {
       enableSoundButton.addEventListener("click", toggleAlerts);
-    }
-
-    const dismissLiveAlertButton = document.getElementById("dismiss-live-alert");
-    if (dismissLiveAlertButton) {
-      dismissLiveAlertButton.addEventListener("click", () => {
-        const alertBox = document.getElementById("live-order-alert");
-        if (!alertBox) return;
-        alertBox.classList.add("d-none");
-        alertBox.classList.remove("d-flex");
-      });
     }
 
     setInterval(refreshOrders, 5000);
