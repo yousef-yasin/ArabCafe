@@ -47,20 +47,28 @@
 {% block scripts %}
 <script>
   const STORAGE_KEY = "cafeteria_seen_order_ids";
+  const ALERTS_KEY = "cafeteria_alerts_enabled";
   const DEFAULT_TITLE = document.title;
   let audioCtx = null;
   let alertsEnabled = false;
   let lastShownCount = 0;
+  let activeNotifications = [];
 
-  function getOrderIdsFromHtml(html) {
+  function getOrderDataFromHtml(html) {
     const temp = document.createElement("div");
     temp.innerHTML = html;
-    return Array.from(temp.querySelectorAll(".small.text-muted"))
-      .map((el) => {
-        const match = el.textContent.match(/#(\d+)/);
-        return match ? match[1] : null;
-      })
-      .filter(Boolean);
+    return Array.from(temp.querySelectorAll(".order-card")).map((card) => {
+      const idEl = card.querySelector(".small.text-muted");
+      const nameEl = card.querySelector("h4");
+      const metaEl = card.querySelector(".text-muted");
+      const idMatch = idEl ? idEl.textContent.match(/#(\d+)/) : null;
+      const buildingMatch = metaEl ? metaEl.textContent.match(/المبنى\s+([A-Zأ-ي0-9]+)/i) : null;
+      return {
+        id: idMatch ? idMatch[1] : null,
+        studentName: nameEl ? nameEl.textContent.trim() : "",
+        building: buildingMatch ? buildingMatch[1] : ""
+      };
+    }).filter((order) => order.id);
   }
 
   function loadSeenOrders() {
@@ -75,16 +83,23 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(orderIds));
   }
 
+  function closeActiveNotifications() {
+    activeNotifications.forEach((notification) => {
+      try { notification.close(); } catch (e) {}
+    });
+    activeNotifications = [];
+  }
+
   function syncAlertButton() {
     const button = document.getElementById("enable-sound-btn");
     if (!button) return;
 
-    button.textContent = "تفعيل الصوت والإشعارات";
-
     if (alertsEnabled) {
+      button.textContent = "الإشعارات مفعلة";
       button.classList.remove("btn-outline-secondary");
       button.classList.add("btn-success");
     } else {
+      button.textContent = "تفعيل الصوت والإشعارات";
       button.classList.remove("btn-success");
       button.classList.add("btn-outline-secondary");
     }
@@ -108,22 +123,31 @@
     return permission === "granted";
   }
 
-  async function toggleAlerts() {
+  async function enableAlerts() {
     try {
-      if (!alertsEnabled) {
-        await ensureAudioReady();
-        const notificationsOk = await requestBrowserNotifications();
-        alertsEnabled = true;
-        if (!notificationsOk) {
-          console.warn("Browser notifications were not granted.");
-        }
-      } else {
-        alertsEnabled = false;
+      await ensureAudioReady();
+      const notificationsOk = await requestBrowserNotifications();
+      alertsEnabled = true;
+      localStorage.setItem(ALERTS_KEY, "true");
+      if (!notificationsOk) {
+        console.warn("Browser notifications were not granted.");
       }
       syncAlertButton();
     } catch (error) {
-      console.error("Alert toggle failed:", error);
+      console.error("Alert enable failed:", error);
     }
+  }
+
+  async function toggleAlerts() {
+    if (alertsEnabled) {
+      alertsEnabled = false;
+      localStorage.setItem(ALERTS_KEY, "false");
+      closeActiveNotifications();
+      syncAlertButton();
+      return;
+    }
+
+    await enableAlerts();
   }
 
   function playNotificationSound() {
@@ -151,33 +175,30 @@
     }
   }
 
-  function showBrowserNotification(newCount) {
+  function showOrderNotification(order) {
     if (!alertsEnabled) return;
     if (!("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
+    if (!document.hidden) return;
 
-    const bodyText = newCount === 1
-      ? "وصل طلب جديد."
-      : `وصل ${newCount} طلبات جديدة.`;
+    const bodyParts = [];
+    if (order.studentName) bodyParts.push(`الاسم: ${order.studentName}`);
+    if (order.building) bodyParts.push(`المبنى: ${order.building}`);
 
-    const notification = new Notification("الكافتيريا", {
-      body: bodyText + " اضغط لفتح الصفحة.",
-      tag: "cafeteria-new-orders",
+    const notification = new Notification(`طلب جديد #${order.id}`, {
+      body: bodyParts.join(" • ") || "وصل طلب جديد. اضغط للانتقال للوحة الكافتيريا.",
+      tag: `cafeteria-order-${order.id}`,
       renotify: true,
       requireInteraction: true
     });
 
     notification.onclick = () => {
-      try {
-        window.focus();
-      } catch (e) {}
-      window.location.href = window.location.href;
-      notification.close();
+      try { window.focus(); } catch (e) {}
+      window.location.href = "{{ url_for('admin_dashboard') }}";
+      closeActiveNotifications();
     };
 
-    setTimeout(() => {
-      try { notification.close(); } catch (e) {}
-    }, 10000);
+    activeNotifications.push(notification);
   }
 
   function updatePageTitle(newCount) {
@@ -203,10 +224,11 @@
 
       const html = await response.text();
       const container = document.getElementById("orders-container");
-      const newOrderIds = getOrderIdsFromHtml(html);
+      const orders = getOrderDataFromHtml(html);
+      const newOrderIds = orders.map((order) => order.id);
       const seenOrderIds = loadSeenOrders();
-      const unseenOrderIds = newOrderIds.filter((id) => !seenOrderIds.includes(id));
-      const newCount = unseenOrderIds.length;
+      const unseenOrders = orders.filter((order) => !seenOrderIds.includes(order.id));
+      const newCount = unseenOrders.length;
 
       if (container) {
         container.innerHTML = html;
@@ -214,7 +236,7 @@
 
       if (newCount > 0) {
         playNotificationSound();
-        showBrowserNotification(newCount);
+        unseenOrders.forEach(showOrderNotification);
       }
 
       updatePageTitle(newCount);
@@ -228,12 +250,14 @@
     if (!document.hidden) {
       document.title = DEFAULT_TITLE;
       lastShownCount = 0;
+      closeActiveNotifications();
     }
   });
 
   window.addEventListener("focus", () => {
     document.title = DEFAULT_TITLE;
     lastShownCount = 0;
+    closeActiveNotifications();
   });
 
   
@@ -347,7 +371,7 @@ document.addEventListener("DOMContentLoaded", () => {
       saveSeenOrders(initialOrderIds);
     }
 
-    alertsEnabled = false;
+    alertsEnabled = localStorage.getItem(ALERTS_KEY) === "true";
     syncAlertButton();
 
     scheduleJordan7pmReload();
