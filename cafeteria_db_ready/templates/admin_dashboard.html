@@ -71,6 +71,10 @@
     }).filter((order) => order.id);
   }
 
+  function getOrderIdsFromHtml(html) {
+    return getOrderDataFromHtml(html).map((order) => order.id);
+  }
+
   function loadSeenOrders() {
     try {
       return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
@@ -88,6 +92,27 @@
       try { notification.close(); } catch (e) {}
     });
     activeNotifications = [];
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready
+        .then((registration) => registration.getNotifications())
+        .then((notifications) => notifications.forEach((notification) => {
+          try { notification.close(); } catch (e) {}
+        }))
+        .catch(() => {});
+    }
+  }
+
+  async function getNotificationRegistration() {
+    if (!('serviceWorker' in navigator)) return null;
+
+    try {
+      const registration = await navigator.serviceWorker.register("{{ url_for('static', filename='admin-sw.js') }}");
+      return await navigator.serviceWorker.ready || registration;
+    } catch (error) {
+      console.error("Service worker registration failed:", error);
+      return null;
+    }
   }
 
   function syncAlertButton() {
@@ -175,7 +200,7 @@
     }
   }
 
-  function showOrderNotification(order) {
+  async function showOrderNotification(order) {
     if (!alertsEnabled) return;
     if (!("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
@@ -185,19 +210,35 @@
     if (order.studentName) bodyParts.push(`الاسم: ${order.studentName}`);
     if (order.building) bodyParts.push(`المبنى: ${order.building}`);
 
-    const notification = new Notification(`طلب جديد #${order.id}`, {
-      body: bodyParts.join(" • ") || "وصل طلب جديد. اضغط للانتقال للوحة الكافتيريا.",
+    const title = `طلب جديد #${order.id}`;
+    const body = bodyParts.join(" • ") || "وصل طلب جديد. اضغط للانتقال للوحة الكافتيريا.";
+    const options = {
+      body,
       tag: `cafeteria-order-${order.id}`,
       renotify: true,
-      requireInteraction: true
-    });
+      requireInteraction: true,
+      icon: "{{ url_for('media_logo') }}",
+      badge: "{{ url_for('media_logo') }}",
+      data: { url: "{{ url_for('admin_dashboard') }}" }
+    };
 
+    try {
+      const registration = await getNotificationRegistration();
+      if (registration && registration.showNotification) {
+        await registration.showNotification(title, options);
+        activeNotifications.push({ close() {} });
+        return;
+      }
+    } catch (error) {
+      console.error("Service worker notification failed:", error);
+    }
+
+    const notification = new Notification(title, options);
     notification.onclick = () => {
       try { window.focus(); } catch (e) {}
       window.location.href = "{{ url_for('admin_dashboard') }}";
       closeActiveNotifications();
     };
-
     activeNotifications.push(notification);
   }
 
@@ -236,7 +277,7 @@
 
       if (newCount > 0) {
         playNotificationSound();
-        unseenOrders.forEach(showOrderNotification);
+        unseenOrders.forEach((order) => { showOrderNotification(order); });
       }
 
       updatePageTitle(newCount);
@@ -365,8 +406,7 @@
 
 document.addEventListener("DOMContentLoaded", () => {
     const container = document.getElementById("orders-container");
-    const initialOrders = getOrderDataFromHtml(container ? container.innerHTML : "");
-    const initialOrderIds = initialOrders.map((order) => order.id);
+    const initialOrderIds = getOrderIdsFromHtml(container ? container.innerHTML : "");
 
     if (!loadSeenOrders().length) {
       saveSeenOrders(initialOrderIds);
@@ -374,6 +414,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     alertsEnabled = localStorage.getItem(ALERTS_KEY) === "true";
     syncAlertButton();
+    getNotificationRegistration();
 
     scheduleJordan7pmReload();
 
