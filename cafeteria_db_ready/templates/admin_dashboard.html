@@ -27,7 +27,7 @@
 
   <div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4" role="alert">
     <div>
-      <strong>تنبيه الطلبات:</strong> اضغط الزر مرة واحدة لتفعيل الصوت وإشعارات المتصفح عند وصول طلبات جديدة. إذا كنت على تبويب أو صفحة ثانية سيظهر إشعار على الكمبيوتر ويبقى ظاهرًا حتى ترجع للوحة الكافتيريا.
+      <strong>تنبيه الطلبات:</strong> اضغط الزر مرة واحدة لتفعيل الصوت وإشعارات المتصفح عند وصول طلبات جديدة. ويتم تحديث الصفحة تلقائياً يومياً الساعة 7:00 مساءً بتوقيت الأردن.
     </div>
     <button type="button" class="btn btn-outline-secondary rounded-pill px-4" id="enable-sound-btn">تفعيل الصوت والإشعارات</button>
   </div>
@@ -49,9 +49,11 @@
   const STORAGE_KEY = "cafeteria_seen_order_ids";
   const ALERTS_KEY = "cafeteria_alerts_enabled";
   const DEFAULT_TITLE = document.title;
+  const ADMIN_DASHBOARD_URL = "{{ url_for('admin_dashboard') }}";
   let audioCtx = null;
   let alertsEnabled = false;
-  let activeNotifications = {};
+  let activeNotifications = [];
+  let notificationRegistration = null;
 
   function getOrderDataFromHtml(html) {
     const temp = document.createElement("div");
@@ -59,27 +61,65 @@
     return Array.from(temp.querySelectorAll(".order-card")).map((card) => {
       const idEl = card.querySelector(".small.text-muted");
       const nameEl = card.querySelector("h4");
-      const metaEl = card.querySelector(".text-muted");
+      const metaEls = Array.from(card.querySelectorAll(".text-muted"));
+      const metaText = metaEls.map((el) => el.textContent.trim()).join(" ");
       const idMatch = idEl ? idEl.textContent.match(/#(\d+)/) : null;
-      const buildingMatch = metaEl ? metaEl.textContent.match(/المبنى\s+([A-Zأ-ي0-9]+)/i) : null;
+      const buildingMatch = metaText.match(/المبنى\s+([^•\s]+)/i);
       return {
-        id: idMatch ? idMatch[1] : null,
+        id: idMatch ? String(idMatch[1]) : null,
         studentName: nameEl ? nameEl.textContent.trim() : "",
         building: buildingMatch ? buildingMatch[1] : ""
       };
     }).filter((order) => order.id);
   }
 
+  function getOrderIdsFromHtml(html) {
+    return getOrderDataFromHtml(html).map((order) => order.id);
+  }
+
   function loadSeenOrders() {
     try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      return Array.isArray(saved) ? saved.map(String) : [];
     } catch (error) {
       return [];
     }
   }
 
   function saveSeenOrders(orderIds) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(orderIds));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(orderIds.map(String)));
+  }
+
+  async function registerNotificationWorker() {
+    if (!("serviceWorker" in navigator)) return null;
+    if (notificationRegistration) return notificationRegistration;
+
+    try {
+      notificationRegistration = await navigator.serviceWorker.register("{{ url_for('static', filename='admin-notification-sw.js') }}");
+      return notificationRegistration;
+    } catch (error) {
+      console.error("Service worker registration failed:", error);
+      return null;
+    }
+  }
+
+  async function closeActiveNotifications() {
+    activeNotifications.forEach((notification) => {
+      try { notification.close(); } catch (e) {}
+    });
+    activeNotifications = [];
+
+    try {
+      const registration = await registerNotificationWorker();
+      if (registration && registration.getNotifications) {
+        const notifications = await registration.getNotifications({ includeTriggered: true });
+        notifications.forEach((notification) => {
+          try { notification.close(); } catch (e) {}
+        });
+      }
+    } catch (error) {
+      console.error("Closing notifications failed:", error);
+    }
   }
 
   function syncAlertButton() {
@@ -110,18 +150,66 @@
     if (!("Notification" in window)) return false;
     if (Notification.permission === "granted") return true;
     if (Notification.permission === "denied") return false;
-
     const permission = await Notification.requestPermission();
     return permission === "granted";
+  }
+
+  async function showPersistentNotification(title, body, orderId = null) {
+    if (!alertsEnabled) return;
+    const notificationsOk = await requestBrowserNotifications();
+    if (!notificationsOk) return;
+
+    const notificationData = {
+      body,
+      tag: orderId ? `cafeteria-order-${orderId}` : `cafeteria-generic-${Date.now()}`,
+      renotify: true,
+      requireInteraction: true,
+      icon: "{{ url_for('media_logo') }}",
+      badge: "{{ url_for('media_logo') }}",
+      data: { url: ADMIN_DASHBOARD_URL }
+    };
+
+    try {
+      const registration = await registerNotificationWorker();
+      if (registration && registration.showNotification) {
+        await registration.showNotification(title, notificationData);
+        return;
+      }
+    } catch (error) {
+      console.error("Service worker notification failed:", error);
+    }
+
+    try {
+      const notification = new Notification(title, notificationData);
+      notification.onclick = () => {
+        try { window.focus(); } catch (e) {}
+        window.location.href = ADMIN_DASHBOARD_URL;
+      };
+      activeNotifications.push(notification);
+    } catch (error) {
+      console.error("Window notification failed:", error);
+    }
   }
 
   async function enableAlerts() {
     try {
       await ensureAudioReady();
-      await requestBrowserNotifications();
+      const registration = await registerNotificationWorker();
+      const notificationsOk = await requestBrowserNotifications();
       alertsEnabled = true;
       localStorage.setItem(ALERTS_KEY, "true");
       syncAlertButton();
+
+      if (!notificationsOk) {
+        alert("المتصفح أو النظام منع الإشعارات. لازم تسمح لها من المتصفح والويندوز.");
+        return;
+      }
+
+      if (registration && registration.update) {
+        try { await registration.update(); } catch (e) {}
+      }
+
+      await showPersistentNotification("تم تفعيل إشعارات الكافتيريا", "أي طلب جديد رح يوصلك على اللابتوب حتى لو كنت على تبويب ثاني.");
     } catch (error) {
       console.error("Alert enable failed:", error);
     }
@@ -131,7 +219,7 @@
     if (alertsEnabled) {
       alertsEnabled = false;
       localStorage.setItem(ALERTS_KEY, "false");
-      closeAllNotifications();
+      await closeActiveNotifications();
       syncAlertButton();
       return;
     }
@@ -143,7 +231,6 @@
     if (!alertsEnabled) return;
     try {
       if (!audioCtx || audioCtx.state !== "running") return;
-
       const oscillator = audioCtx.createOscillator();
       const gainNode = audioCtx.createGain();
 
@@ -164,50 +251,21 @@
     }
   }
 
-  function closeAllNotifications() {
-    Object.values(activeNotifications).forEach((notification) => {
-      try { notification.close(); } catch (e) {}
-    });
-    activeNotifications = {};
-  }
-
-  function showOrderNotification(order) {
+  async function showOrderNotification(order) {
     if (!alertsEnabled) return;
-    if (!("Notification" in window)) return;
-    if (Notification.permission !== "granted") return;
-    if (!document.hidden && document.hasFocus()) return;
-    if (activeNotifications[order.id]) return;
+    if (!document.hidden) return;
 
     const bodyParts = [];
     if (order.studentName) bodyParts.push(`الاسم: ${order.studentName}`);
     if (order.building) bodyParts.push(`المبنى: ${order.building}`);
-
-    const notification = new Notification(`طلب جديد #${order.id}`, {
-      body: bodyParts.join(" • ") || "وصل طلب جديد للكافتيريا.",
-      tag: `cafeteria-order-${order.id}`,
-      renotify: true,
-      requireInteraction: true,
-      silent: false
-    });
-
-    notification.onclick = () => {
-      try { window.focus(); } catch (e) {}
-      window.location.href = "{{ url_for('admin_dashboard') }}";
-      try { notification.close(); } catch (e) {}
-      delete activeNotifications[order.id];
-    };
-
-    notification.onclose = () => {
-      delete activeNotifications[order.id];
-    };
-
-    activeNotifications[order.id] = notification;
+    const body = bodyParts.length ? bodyParts.join(" • ") : "وصل طلب جديد للكافتيريا";
+    await showPersistentNotification(`طلب جديد #${order.id}`, body, order.id);
   }
 
   function updatePageTitle(newCount) {
-    if (newCount > 0 && (document.hidden || !document.hasFocus())) {
+    if (newCount > 0 && document.hidden) {
       document.title = `(${newCount}) ${DEFAULT_TITLE}`;
-    } else {
+    } else if (!document.hidden) {
       document.title = DEFAULT_TITLE;
     }
   }
@@ -216,12 +274,10 @@
     try {
       const params = new URLSearchParams(window.location.search);
       const status = params.get("status") || "all";
-
       const response = await fetch(`{{ url_for('admin_orders_partial') }}?status=${encodeURIComponent(status)}`, {
         headers: { "X-Requested-With": "XMLHttpRequest" },
         cache: "no-store"
       });
-
       if (!response.ok) return;
 
       const html = await response.text();
@@ -238,7 +294,9 @@
 
       if (newCount > 0) {
         playNotificationSound();
-        unseenOrders.forEach(showOrderNotification);
+        for (const order of unseenOrders) {
+          await showOrderNotification(order);
+        }
       }
 
       updatePageTitle(newCount);
@@ -247,24 +305,6 @@
       console.error("Auto refresh failed:", error);
     }
   }
-
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) {
-      document.title = DEFAULT_TITLE;
-      closeAllNotifications();
-      const container = document.getElementById("orders-container");
-      const currentOrders = getOrderDataFromHtml(container ? container.innerHTML : "");
-      saveSeenOrders(currentOrders.map((order) => order.id));
-    }
-  });
-
-  window.addEventListener("focus", () => {
-    document.title = DEFAULT_TITLE;
-    closeAllNotifications();
-    const container = document.getElementById("orders-container");
-    const currentOrders = getOrderDataFromHtml(container ? container.innerHTML : "");
-    saveSeenOrders(currentOrders.map((order) => order.id));
-  });
 
   function getJordanNowParts() {
     const formatter = new Intl.DateTimeFormat('en-CA', {
@@ -361,29 +401,41 @@
 
     const targetDate = jordanDateToUtcDate(targetYear, targetMonth, targetDay, 19, 0, 0);
     const delay = Math.max(targetDate.getTime() - Date.now(), 1000);
-
     setTimeout(() => {
       window.location.reload();
     }, delay);
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
-    const container = document.getElementById("orders-container");
-    const initialOrders = getOrderDataFromHtml(container ? container.innerHTML : "");
-    const initialOrderIds = initialOrders.map((order) => order.id);
+  document.addEventListener("visibilitychange", async () => {
+    if (!document.hidden) {
+      document.title = DEFAULT_TITLE;
+      await closeActiveNotifications();
+    }
+  });
 
+  window.addEventListener("focus", async () => {
+    document.title = DEFAULT_TITLE;
+    await closeActiveNotifications();
+  });
+
+  document.addEventListener("DOMContentLoaded", async () => {
+    const container = document.getElementById("orders-container");
+    const initialOrderIds = getOrderIdsFromHtml(container ? container.innerHTML : "");
     if (!loadSeenOrders().length) {
       saveSeenOrders(initialOrderIds);
     }
 
     alertsEnabled = localStorage.getItem(ALERTS_KEY) === "true";
     syncAlertButton();
-
     scheduleJordan7pmReload();
 
     const enableSoundButton = document.getElementById("enable-sound-btn");
     if (enableSoundButton) {
       enableSoundButton.addEventListener("click", toggleAlerts);
+    }
+
+    if (alertsEnabled) {
+      await registerNotificationWorker();
     }
 
     setInterval(refreshOrders, 5000);
