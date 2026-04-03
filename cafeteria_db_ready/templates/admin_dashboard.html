@@ -51,7 +51,25 @@
   const DEFAULT_TITLE = document.title;
   let audioCtx = null;
   let alertsEnabled = false;
+  let lastShownCount = 0;
   let activeNotifications = [];
+
+  function getOrderDataFromHtml(html) {
+    const temp = document.createElement("div");
+    temp.innerHTML = html;
+    return Array.from(temp.querySelectorAll(".order-card")).map((card) => {
+      const idEl = card.querySelector(".small.text-muted");
+      const nameEl = card.querySelector("h4");
+      const metaEl = card.querySelector(".text-muted");
+      const idMatch = idEl ? idEl.textContent.match(/#(\d+)/) : null;
+      const buildingMatch = metaEl ? metaEl.textContent.match(/المبنى\s+([A-Zأ-ي0-9]+)/i) : null;
+      return {
+        id: idMatch ? idMatch[1] : null,
+        studentName: nameEl ? nameEl.textContent.trim() : "",
+        building: buildingMatch ? buildingMatch[1] : ""
+      };
+    }).filter((order) => order.id);
+  }
 
   function loadSeenOrders() {
     try {
@@ -164,7 +182,7 @@
     if (!document.hidden) return;
 
     const bodyParts = [];
-    if (order.student_name) bodyParts.push(`الاسم: ${order.student_name}`);
+    if (order.studentName) bodyParts.push(`الاسم: ${order.studentName}`);
     if (order.building) bodyParts.push(`المبنى: ${order.building}`);
 
     const notification = new Notification(`طلب جديد #${order.id}`, {
@@ -186,8 +204,10 @@
   function updatePageTitle(newCount) {
     if (newCount > 0 && document.hidden) {
       document.title = `(${newCount}) ${DEFAULT_TITLE}`;
+      lastShownCount = newCount;
     } else if (!document.hidden) {
       document.title = DEFAULT_TITLE;
+      lastShownCount = 0;
     }
   }
 
@@ -196,36 +216,31 @@
       const params = new URLSearchParams(window.location.search);
       const status = params.get("status") || "all";
 
-      const [metaResponse, htmlResponse] = await Promise.all([
-        fetch(`{{ url_for('admin_orders_meta') }}`, {
-          headers: { "X-Requested-With": "XMLHttpRequest" }
-        }),
-        fetch(`{{ url_for('admin_orders_partial') }}?status=${encodeURIComponent(status)}`, {
-          headers: { "X-Requested-With": "XMLHttpRequest" }
-        })
-      ]);
+      const response = await fetch(`{{ url_for('admin_orders_partial') }}?status=${encodeURIComponent(status)}`, {
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      });
 
-      if (!metaResponse.ok || !htmlResponse.ok) return;
+      if (!response.ok) return;
 
-      const meta = await metaResponse.json();
-      const html = await htmlResponse.text();
+      const html = await response.text();
       const container = document.getElementById("orders-container");
-      const allOrders = Array.isArray(meta.orders) ? meta.orders : [];
-      const allOrderIds = allOrders.map((order) => String(order.id));
+      const orders = getOrderDataFromHtml(html);
+      const newOrderIds = orders.map((order) => order.id);
       const seenOrderIds = loadSeenOrders();
-      const unseenOrders = allOrders.filter((order) => !seenOrderIds.includes(String(order.id)));
+      const unseenOrders = orders.filter((order) => !seenOrderIds.includes(order.id));
+      const newCount = unseenOrders.length;
 
       if (container) {
         container.innerHTML = html;
       }
 
-      if (unseenOrders.length > 0) {
+      if (newCount > 0) {
         playNotificationSound();
         unseenOrders.forEach(showOrderNotification);
       }
 
-      updatePageTitle(unseenOrders.length);
-      saveSeenOrders(allOrderIds);
+      updatePageTitle(newCount);
+      saveSeenOrders(newOrderIds);
     } catch (error) {
       console.error("Auto refresh failed:", error);
     }
@@ -234,15 +249,18 @@
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
       document.title = DEFAULT_TITLE;
+      lastShownCount = 0;
       closeActiveNotifications();
     }
   });
 
   window.addEventListener("focus", () => {
     document.title = DEFAULT_TITLE;
+    lastShownCount = 0;
     closeActiveNotifications();
   });
 
+  
   function getJordanNowParts() {
     const formatter = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Amman',
@@ -344,9 +362,19 @@
     }, delay);
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
+
+document.addEventListener("DOMContentLoaded", () => {
+    const container = document.getElementById("orders-container");
+    const initialOrders = getOrderDataFromHtml(container ? container.innerHTML : "");
+    const initialOrderIds = initialOrders.map((order) => order.id);
+
+    if (!loadSeenOrders().length) {
+      saveSeenOrders(initialOrderIds);
+    }
+
     alertsEnabled = localStorage.getItem(ALERTS_KEY) === "true";
     syncAlertButton();
+
     scheduleJordan7pmReload();
 
     const enableSoundButton = document.getElementById("enable-sound-btn");
@@ -354,7 +382,6 @@
       enableSoundButton.addEventListener("click", toggleAlerts);
     }
 
-    refreshOrders();
     setInterval(refreshOrders, 5000);
   });
 </script>

@@ -306,23 +306,12 @@ def admin_orders_partial():
 @app.route(f'/{ADMIN_SECRET_PATH}/orders_meta')
 @admin_required
 def admin_orders_meta():
-    orders = Order.query.order_by(Order.created_at.desc()).all()
-    latest_order = orders[0] if orders else None
-
+    latest_order = Order.query.order_by(Order.created_at.desc()).first()
     return jsonify({
         'latest_order_id': latest_order.id if latest_order else 0,
         'pending_count': Order.query.filter_by(status='pending').count(),
         'confirmed_count': Order.query.filter_by(status='confirmed').count(),
-        'ready_count': Order.query.filter_by(status='ready').count(),
-        'orders': [
-            {
-                'id': order.id,
-                'student_name': order.student_name,
-                'building': order.building,
-                'status': order.status,
-            }
-            for order in orders
-        ]
+        'ready_count': Order.query.filter_by(status='ready').count()
     })
 def get_upload_blob(file_storage):
     if not file_storage or not file_storage.filename:
