@@ -27,7 +27,7 @@
 
   <div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4" role="alert">
     <div>
-      <strong>تنبيه الطلبات:</strong> اضغط الزر مرة واحدة لتفعيل الصوت وإشعارات المتصفح عند وصول طلبات جديدة. ويتم تحديث الصفحة تلقائياً يومياً الساعة 7:00 مساءً بتوقيت الأردن.
+      <strong>تنبيه الطلبات:</strong> اضغط الزر مرة واحدة لتفعيل الصوت وإشعارات المتصفح عند وصول طلبات جديدة. إذا كنت على تبويب أو صفحة ثانية سيظهر إشعار على الكمبيوتر ويبقى ظاهرًا حتى ترجع للوحة الكافتيريا.
     </div>
     <button type="button" class="btn btn-outline-secondary rounded-pill px-4" id="enable-sound-btn">تفعيل الصوت والإشعارات</button>
   </div>
@@ -51,8 +51,7 @@
   const DEFAULT_TITLE = document.title;
   let audioCtx = null;
   let alertsEnabled = false;
-  let lastShownCount = 0;
-  let activeNotifications = [];
+  let activeNotifications = {};
 
   function getOrderDataFromHtml(html) {
     const temp = document.createElement("div");
@@ -71,10 +70,6 @@
     }).filter((order) => order.id);
   }
 
-  function getOrderIdsFromHtml(html) {
-    return getOrderDataFromHtml(html).map((order) => order.id);
-  }
-
   function loadSeenOrders() {
     try {
       return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
@@ -85,34 +80,6 @@
 
   function saveSeenOrders(orderIds) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(orderIds));
-  }
-
-  function closeActiveNotifications() {
-    activeNotifications.forEach((notification) => {
-      try { notification.close(); } catch (e) {}
-    });
-    activeNotifications = [];
-
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.ready
-        .then((registration) => registration.getNotifications())
-        .then((notifications) => notifications.forEach((notification) => {
-          try { notification.close(); } catch (e) {}
-        }))
-        .catch(() => {});
-    }
-  }
-
-  async function getNotificationRegistration() {
-    if (!('serviceWorker' in navigator)) return null;
-
-    try {
-      const registration = await navigator.serviceWorker.register("{{ url_for('static', filename='admin-sw.js') }}");
-      return await navigator.serviceWorker.ready || registration;
-    } catch (error) {
-      console.error("Service worker registration failed:", error);
-      return null;
-    }
   }
 
   function syncAlertButton() {
@@ -151,12 +118,9 @@
   async function enableAlerts() {
     try {
       await ensureAudioReady();
-      const notificationsOk = await requestBrowserNotifications();
+      await requestBrowserNotifications();
       alertsEnabled = true;
       localStorage.setItem(ALERTS_KEY, "true");
-      if (!notificationsOk) {
-        console.warn("Browser notifications were not granted.");
-      }
       syncAlertButton();
     } catch (error) {
       console.error("Alert enable failed:", error);
@@ -167,7 +131,7 @@
     if (alertsEnabled) {
       alertsEnabled = false;
       localStorage.setItem(ALERTS_KEY, "false");
-      closeActiveNotifications();
+      closeAllNotifications();
       syncAlertButton();
       return;
     }
@@ -200,55 +164,51 @@
     }
   }
 
-  async function showOrderNotification(order) {
+  function closeAllNotifications() {
+    Object.values(activeNotifications).forEach((notification) => {
+      try { notification.close(); } catch (e) {}
+    });
+    activeNotifications = {};
+  }
+
+  function showOrderNotification(order) {
     if (!alertsEnabled) return;
     if (!("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
-    if (!document.hidden) return;
+    if (!document.hidden && document.hasFocus()) return;
+    if (activeNotifications[order.id]) return;
 
     const bodyParts = [];
     if (order.studentName) bodyParts.push(`الاسم: ${order.studentName}`);
     if (order.building) bodyParts.push(`المبنى: ${order.building}`);
 
-    const title = `طلب جديد #${order.id}`;
-    const body = bodyParts.join(" • ") || "وصل طلب جديد. اضغط للانتقال للوحة الكافتيريا.";
-    const options = {
-      body,
+    const notification = new Notification(`طلب جديد #${order.id}`, {
+      body: bodyParts.join(" • ") || "وصل طلب جديد للكافتيريا.",
       tag: `cafeteria-order-${order.id}`,
       renotify: true,
       requireInteraction: true,
-      icon: "{{ url_for('media_logo') }}",
-      badge: "{{ url_for('media_logo') }}",
-      data: { url: "{{ url_for('admin_dashboard') }}" }
-    };
+      silent: false
+    });
 
-    try {
-      const registration = await getNotificationRegistration();
-      if (registration && registration.showNotification) {
-        await registration.showNotification(title, options);
-        activeNotifications.push({ close() {} });
-        return;
-      }
-    } catch (error) {
-      console.error("Service worker notification failed:", error);
-    }
-
-    const notification = new Notification(title, options);
     notification.onclick = () => {
       try { window.focus(); } catch (e) {}
       window.location.href = "{{ url_for('admin_dashboard') }}";
-      closeActiveNotifications();
+      try { notification.close(); } catch (e) {}
+      delete activeNotifications[order.id];
     };
-    activeNotifications.push(notification);
+
+    notification.onclose = () => {
+      delete activeNotifications[order.id];
+    };
+
+    activeNotifications[order.id] = notification;
   }
 
   function updatePageTitle(newCount) {
-    if (newCount > 0 && document.hidden) {
+    if (newCount > 0 && (document.hidden || !document.hasFocus())) {
       document.title = `(${newCount}) ${DEFAULT_TITLE}`;
-      lastShownCount = newCount;
-    } else if (!document.hidden) {
+    } else {
       document.title = DEFAULT_TITLE;
-      lastShownCount = 0;
     }
   }
 
@@ -258,7 +218,8 @@
       const status = params.get("status") || "all";
 
       const response = await fetch(`{{ url_for('admin_orders_partial') }}?status=${encodeURIComponent(status)}`, {
-        headers: { "X-Requested-With": "XMLHttpRequest" }
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        cache: "no-store"
       });
 
       if (!response.ok) return;
@@ -277,7 +238,7 @@
 
       if (newCount > 0) {
         playNotificationSound();
-        unseenOrders.forEach((order) => { showOrderNotification(order); });
+        unseenOrders.forEach(showOrderNotification);
       }
 
       updatePageTitle(newCount);
@@ -290,18 +251,21 @@
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
       document.title = DEFAULT_TITLE;
-      lastShownCount = 0;
-      closeActiveNotifications();
+      closeAllNotifications();
+      const container = document.getElementById("orders-container");
+      const currentOrders = getOrderDataFromHtml(container ? container.innerHTML : "");
+      saveSeenOrders(currentOrders.map((order) => order.id));
     }
   });
 
   window.addEventListener("focus", () => {
     document.title = DEFAULT_TITLE;
-    lastShownCount = 0;
-    closeActiveNotifications();
+    closeAllNotifications();
+    const container = document.getElementById("orders-container");
+    const currentOrders = getOrderDataFromHtml(container ? container.innerHTML : "");
+    saveSeenOrders(currentOrders.map((order) => order.id));
   });
 
-  
   function getJordanNowParts() {
     const formatter = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Amman',
@@ -403,10 +367,10 @@
     }, delay);
   }
 
-
-document.addEventListener("DOMContentLoaded", () => {
+  document.addEventListener("DOMContentLoaded", () => {
     const container = document.getElementById("orders-container");
-    const initialOrderIds = getOrderIdsFromHtml(container ? container.innerHTML : "");
+    const initialOrders = getOrderDataFromHtml(container ? container.innerHTML : "");
+    const initialOrderIds = initialOrders.map((order) => order.id);
 
     if (!loadSeenOrders().length) {
       saveSeenOrders(initialOrderIds);
@@ -414,7 +378,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     alertsEnabled = localStorage.getItem(ALERTS_KEY) === "true";
     syncAlertButton();
-    getNotificationRegistration();
 
     scheduleJordan7pmReload();
 
