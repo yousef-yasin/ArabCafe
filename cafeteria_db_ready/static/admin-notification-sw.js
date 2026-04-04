@@ -12,14 +12,24 @@ self.addEventListener("notificationclick", (event) => {
 
   event.waitUntil((async () => {
     const allClients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+
     for (const client of allClients) {
-      if ("focus" in client) {
-        try {
+      try {
+        const url = new URL(client.url);
+        if (url.pathname.includes("adminarabcafeaau123")) {
           await client.navigate(targetUrl);
-        } catch (e) {}
-        return client.focus();
-      }
+          return client.focus();
+        }
+      } catch (e) {}
     }
+
+    if (allClients.length > 0) {
+      try {
+        await allClients[0].navigate(targetUrl);
+        return allClients[0].focus();
+      } catch (e) {}
+    }
+
     if (self.clients.openWindow) {
       return self.clients.openWindow(targetUrl);
     }

@@ -7,7 +7,7 @@ import json
 import mimetypes
 import os
 
-from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_file, abort, jsonify
+from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_file, abort, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, inspect, text
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -333,6 +333,14 @@ def inject_globals():
         'jordan_timezone_label': 'Asia/Amman',
     }
 
+
+
+@app.route('/admin-notification-sw.js')
+def admin_notification_service_worker():
+    response = send_from_directory(app.static_folder, 'admin-notification-sw.js')
+    response.headers['Service-Worker-Allowed'] = '/'
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 @app.route('/media/logo')
 def media_logo():
