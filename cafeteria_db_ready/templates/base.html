@@ -39,7 +39,161 @@
     {% block content %}{% endblock %}
   </main>
 
+
   <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
+  {% if session.get('admin_id') and request.endpoint != 'admin_login' %}
+  <script>
+    (function () {
+      const ALERTS_KEY = "cafeteria_alerts_enabled";
+      const LAST_ORDER_KEY = "cafeteria_last_seen_order_id";
+      const ADMIN_DASHBOARD_URL = "{{ url_for('admin_dashboard') }}";
+      const ADMIN_DASHBOARD_ABS_URL = "{{ url_for('admin_dashboard', _external=True) }}";
+      const META_URL = "{{ url_for('admin_orders_meta') }}";
+      const IS_DASHBOARD = {{ 'true' if request.endpoint == 'admin_dashboard' else 'false' }};
+      let notificationRegistration = null;
+      let openNotifications = [];
+
+      function alertsEnabled() {
+        return localStorage.getItem(ALERTS_KEY) === 'true';
+      }
+
+      function getLastOrderId() {
+        return Number(localStorage.getItem(LAST_ORDER_KEY) || '0');
+      }
+
+      function setLastOrderId(value) {
+        localStorage.setItem(LAST_ORDER_KEY, String(value || 0));
+      }
+
+      async function registerNotificationWorker() {
+        if (!('serviceWorker' in navigator)) return null;
+        if (notificationRegistration) return notificationRegistration;
+        try {
+          notificationRegistration = await navigator.serviceWorker.register("{{ url_for('static', filename='admin-notification-sw.js') }}");
+          return notificationRegistration;
+        } catch (error) {
+          console.error('SW register failed', error);
+          return null;
+        }
+      }
+
+      async function closeNotifications() {
+        openNotifications.forEach((n) => {
+          try { n.close(); } catch (e) {}
+        });
+        openNotifications = [];
+
+        try {
+          const registration = await registerNotificationWorker();
+          if (registration && registration.getNotifications) {
+            const notifications = await registration.getNotifications({ includeTriggered: true });
+            notifications.forEach((n) => {
+              try { n.close(); } catch (e) {}
+            });
+          }
+        } catch (error) {
+          console.error('Close notification failed', error);
+        }
+      }
+
+      async function requestNotifications() {
+        if (!('Notification' in window)) return false;
+        if (Notification.permission === 'granted') return true;
+        if (Notification.permission === 'denied') return false;
+        const permission = await Notification.requestPermission();
+        return permission === 'granted';
+      }
+
+      async function showOrderNotification(orderId) {
+        if (!alertsEnabled()) return;
+        const ok = await requestNotifications();
+        if (!ok) return;
+
+        const body = 'وصل طلب جديد للكافتيريا';
+        const data = {
+          body,
+          tag: `cafeteria-order-${orderId}`,
+          renotify: true,
+          requireInteraction: true,
+          icon: "{{ url_for('media_logo') }}",
+          badge: "{{ url_for('media_logo') }}",
+          data: { url: ADMIN_DASHBOARD_ABS_URL }
+        };
+
+        try {
+          const registration = await registerNotificationWorker();
+          if (registration && registration.showNotification) {
+            await registration.showNotification(`طلب جديد #${orderId}`, data);
+            return;
+          }
+        } catch (error) {
+          console.error('SW notify failed', error);
+        }
+
+        try {
+          const n = new Notification(`طلب جديد #${orderId}`, data);
+          n.onclick = function () {
+            window.open(ADMIN_DASHBOARD_ABS_URL, '_blank');
+            try { window.focus(); } catch (e) {}
+            n.close();
+          };
+          openNotifications.push(n);
+        } catch (error) {
+          console.error('Window notify failed', error);
+        }
+      }
+
+      async function pollOrdersMeta() {
+        if (!alertsEnabled()) return;
+        try {
+          const response = await fetch(META_URL, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            cache: 'no-store'
+          });
+          if (!response.ok) return;
+          const data = await response.json();
+          const latestId = Number(data.latest_order_id || 0);
+          const previousId = getLastOrderId();
+
+          if (!previousId) {
+            setLastOrderId(latestId);
+            return;
+          }
+
+          if (latestId > previousId) {
+            for (let id = previousId + 1; id <= latestId; id++) {
+              if (document.hidden || !IS_DASHBOARD) {
+                await showOrderNotification(id);
+              }
+            }
+            setLastOrderId(latestId);
+          }
+        } catch (error) {
+          console.error('Meta polling failed', error);
+        }
+      }
+
+      document.addEventListener('visibilitychange', async function () {
+        if (!document.hidden && IS_DASHBOARD) {
+          await closeNotifications();
+        }
+      });
+
+      window.addEventListener('focus', async function () {
+        if (IS_DASHBOARD) {
+          await closeNotifications();
+        }
+      });
+
+      document.addEventListener('DOMContentLoaded', async function () {
+        if (!alertsEnabled()) return;
+        await registerNotificationWorker();
+        setInterval(pollOrdersMeta, 5000);
+      });
+    })();
+  </script>
+  {% endif %}
   {% block scripts %}{% endblock %}
+
 </body>
 </html>

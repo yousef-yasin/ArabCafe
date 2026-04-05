@@ -48,10 +48,9 @@
 <script>
   const STORAGE_KEY = "cafeteria_seen_order_ids";
   const ALERTS_KEY = "cafeteria_alerts_enabled";
-  const LAST_NOTIFIED_KEY = "cafeteria_last_notified_order_id";
   const DEFAULT_TITLE = document.title;
   const ADMIN_DASHBOARD_URL = "{{ url_for('admin_dashboard') }}";
-
+  const ADMIN_DASHBOARD_ABS_URL = "{{ url_for('admin_dashboard', _external=True) }}";
   let audioCtx = null;
   let alertsEnabled = false;
   let activeNotifications = [];
@@ -68,19 +67,28 @@
       const idMatch = idEl ? idEl.textContent.match(/#(\d+)/) : null;
       const buildingMatch = metaText.match(/المبنى\s+([^•\s]+)/i);
       return {
-        id: idMatch ? Number(idMatch[1]) : null,
+        id: idMatch ? String(idMatch[1]) : null,
         studentName: nameEl ? nameEl.textContent.trim() : "",
         building: buildingMatch ? buildingMatch[1] : ""
       };
     }).filter((order) => order.id);
   }
 
-  function loadLastNotifiedOrderId() {
-    return Number(localStorage.getItem(LAST_NOTIFIED_KEY) || "0");
+  function getOrderIdsFromHtml(html) {
+    return getOrderDataFromHtml(html).map((order) => order.id);
   }
 
-  function saveLastNotifiedOrderId(orderId) {
-    localStorage.setItem(LAST_NOTIFIED_KEY, String(orderId || 0));
+  function loadSeenOrders() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      return Array.isArray(saved) ? saved.map(String) : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function saveSeenOrders(orderIds) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(orderIds.map(String)));
   }
 
   async function registerNotificationWorker() {
@@ -88,7 +96,7 @@
     if (notificationRegistration) return notificationRegistration;
 
     try {
-      notificationRegistration = await navigator.serviceWorker.register("{{ url_for('admin_notification_service_worker') }}");
+      notificationRegistration = await navigator.serviceWorker.register("{{ url_for('static', filename='admin-notification-sw.js') }}");
       return notificationRegistration;
     } catch (error) {
       console.error("Service worker registration failed:", error);
@@ -159,7 +167,7 @@
       requireInteraction: true,
       icon: "{{ url_for('media_logo') }}",
       badge: "{{ url_for('media_logo') }}",
-      data: { url: ADMIN_DASHBOARD_URL }
+      data: { url: ADMIN_DASHBOARD_ABS_URL }
     };
 
     try {
@@ -176,8 +184,7 @@
       const notification = new Notification(title, notificationData);
       notification.onclick = () => {
         try { window.focus(); } catch (e) {}
-        window.location.href = ADMIN_DASHBOARD_URL;
-        notification.close();
+        window.location.href = ADMIN_DASHBOARD_ABS_URL;
       };
       activeNotifications.push(notification);
     } catch (error) {
@@ -188,7 +195,7 @@
   async function enableAlerts() {
     try {
       await ensureAudioReady();
-      await registerNotificationWorker();
+      const registration = await registerNotificationWorker();
       const notificationsOk = await requestBrowserNotifications();
       alertsEnabled = true;
       localStorage.setItem(ALERTS_KEY, "true");
@@ -199,6 +206,10 @@
         return;
       }
 
+      if (registration && registration.update) {
+        try { await registration.update(); } catch (e) {}
+      }
+
       await showPersistentNotification("تم تفعيل إشعارات الكافتيريا", "أي طلب جديد رح يوصلك على اللابتوب حتى لو كنت على تبويب ثاني.");
     } catch (error) {
       console.error("Alert enable failed:", error);
@@ -207,9 +218,6 @@
 
   async function toggleAlerts() {
     if (alertsEnabled) {
-      alertsEnabled = false;
-      localStorage.setItem(ALERTS_KEY, "false");
-      await closeActiveNotifications();
       syncAlertButton();
       return;
     }
@@ -243,7 +251,6 @@
 
   async function showOrderNotification(order) {
     if (!alertsEnabled) return;
-    if (!document.hidden && document.hasFocus()) return;
 
     const bodyParts = [];
     if (order.studentName) bodyParts.push(`الاسم: ${order.studentName}`);
@@ -253,7 +260,7 @@
   }
 
   function updatePageTitle(newCount) {
-    if (newCount > 0 && (document.hidden || !document.hasFocus())) {
+    if (newCount > 0) {
       document.title = `(${newCount}) ${DEFAULT_TITLE}`;
     } else {
       document.title = DEFAULT_TITLE;
@@ -264,45 +271,33 @@
     try {
       const params = new URLSearchParams(window.location.search);
       const status = params.get("status") || "all";
+      const response = await fetch(`{{ url_for('admin_orders_partial') }}?status=${encodeURIComponent(status)}`, {
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        cache: "no-store"
+      });
+      if (!response.ok) return;
 
-      const [metaResponse, partialResponse] = await Promise.all([
-        fetch("{{ url_for('admin_orders_meta') }}", {
-          headers: { "X-Requested-With": "XMLHttpRequest" },
-          cache: "no-store"
-        }),
-        fetch(`{{ url_for('admin_orders_partial') }}?status=${encodeURIComponent(status)}`, {
-          headers: { "X-Requested-With": "XMLHttpRequest" },
-          cache: "no-store"
-        })
-      ]);
-
-      if (!metaResponse.ok || !partialResponse.ok) return;
-
-      const meta = await metaResponse.json();
-      const html = await partialResponse.text();
+      const html = await response.text();
       const container = document.getElementById("orders-container");
       const orders = getOrderDataFromHtml(html);
-      const lastNotifiedId = loadLastNotifiedOrderId();
-      const unseenOrders = orders
-        .filter((order) => order.id > lastNotifiedId)
-        .sort((a, b) => a.id - b.id);
+      const newOrderIds = orders.map((order) => order.id);
+      const seenOrderIds = loadSeenOrders();
+      const unseenOrders = orders.filter((order) => !seenOrderIds.includes(order.id));
+      const newCount = unseenOrders.length;
 
       if (container) {
         container.innerHTML = html;
       }
 
-      if (unseenOrders.length > 0) {
+      if (newCount > 0) {
         playNotificationSound();
         for (const order of unseenOrders) {
           await showOrderNotification(order);
         }
-        saveLastNotifiedOrderId(unseenOrders[unseenOrders.length - 1].id);
-      } else if (meta.latest_order_id && lastNotifiedId === 0) {
-        saveLastNotifiedOrderId(meta.latest_order_id);
       }
 
-      updatePageTitle(unseenOrders.length);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(orders.map((order) => String(order.id))));
+      updatePageTitle(newCount);
+      saveSeenOrders(newOrderIds);
     } catch (error) {
       console.error("Auto refresh failed:", error);
     }
@@ -408,29 +403,23 @@
     }, delay);
   }
 
-  async function clearNotificationState() {
-    document.title = DEFAULT_TITLE;
-    await closeActiveNotifications();
-    await refreshOrders();
-  }
-
   document.addEventListener("visibilitychange", async () => {
     if (!document.hidden) {
-      await clearNotificationState();
+      document.title = DEFAULT_TITLE;
+      await closeActiveNotifications();
     }
   });
 
   window.addEventListener("focus", async () => {
-    await clearNotificationState();
+    document.title = DEFAULT_TITLE;
+    await closeActiveNotifications();
   });
 
   document.addEventListener("DOMContentLoaded", async () => {
     const container = document.getElementById("orders-container");
-    const initialOrders = getOrderDataFromHtml(container ? container.innerHTML : "");
-    const initialMaxOrderId = initialOrders.length ? Math.max(...initialOrders.map((order) => order.id)) : 0;
-
-    if (!loadLastNotifiedOrderId()) {
-      saveLastNotifiedOrderId(initialMaxOrderId);
+    const initialOrderIds = getOrderIdsFromHtml(container ? container.innerHTML : "");
+    if (!loadSeenOrders().length) {
+      saveSeenOrders(initialOrderIds);
     }
 
     alertsEnabled = localStorage.getItem(ALERTS_KEY) === "true";
@@ -446,7 +435,7 @@
       await registerNotificationWorker();
     }
 
-    setInterval(refreshOrders, 3000);
+    setInterval(refreshOrders, 5000);
   });
 </script>
 {% endblock %}

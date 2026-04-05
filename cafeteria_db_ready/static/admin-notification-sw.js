@@ -7,27 +7,28 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("notificationclick", (event) => {
-  event.notification.close();
-  const targetUrl = (event.notification.data && event.notification.data.url) || "/";
+  const notification = event.notification;
+  const targetUrl = (notification.data && notification.data.url) || "/";
+  notification.close();
 
   event.waitUntil((async () => {
     const allClients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
 
     for (const client of allClients) {
-      try {
-        const url = new URL(client.url);
-        if (url.pathname.includes("adminarabcafeaau123")) {
-          await client.navigate(targetUrl);
+      const clientUrl = new URL(client.url);
+      const target = new URL(targetUrl, self.location.origin);
+
+      if (clientUrl.origin === target.origin) {
+        try {
+          if (client.url !== target.href && "navigate" in client) {
+            await client.navigate(target.href);
+          }
+        } catch (e) {}
+
+        if ("focus" in client) {
           return client.focus();
         }
-      } catch (e) {}
-    }
-
-    if (allClients.length > 0) {
-      try {
-        await allClients[0].navigate(targetUrl);
-        return allClients[0].focus();
-      } catch (e) {}
+      }
     }
 
     if (self.clients.openWindow) {
