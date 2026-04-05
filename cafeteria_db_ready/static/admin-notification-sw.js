@@ -12,27 +12,23 @@ self.addEventListener("notificationclick", (event) => {
   notification.close();
 
   event.waitUntil((async () => {
+    const target = new URL(targetUrl, self.location.origin);
     const allClients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
 
     for (const client of allClients) {
-      const clientUrl = new URL(client.url);
-      const target = new URL(targetUrl, self.location.origin);
-
-      if (clientUrl.origin === target.origin) {
-        try {
-          if (client.url !== target.href && "navigate" in client) {
-            await client.navigate(target.href);
+      try {
+        const clientUrl = new URL(client.url);
+        if (clientUrl.href === target.href || clientUrl.pathname === target.pathname) {
+          if ("focus" in client) {
+            return client.focus();
           }
-        } catch (e) {}
-
-        if ("focus" in client) {
-          return client.focus();
+          return client;
         }
-      }
+      } catch (e) {}
     }
 
     if (self.clients.openWindow) {
-      return self.clients.openWindow(targetUrl);
+      return self.clients.openWindow(target.href);
     }
   })());
 });
