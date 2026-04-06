@@ -4,20 +4,16 @@ from functools import wraps
 from collections import defaultdict
 from io import BytesIO
 import json
-import logging
 import mimetypes
 import os
+
+from escpos.printer import Network
 
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_file, abort, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, inspect, text
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-
-try:
-    from escpos.printer import Network
-except Exception:
-    Network = None
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'cafeteria.db')
@@ -34,16 +30,64 @@ db = SQLAlchemy(app)
 
 JORDAN_TZ = ZoneInfo('Asia/Amman')
 ADMIN_SECRET_PATH = 'adminarabcafeaau123'
+
 PRINTER_IPS = [
-    ip.strip()
-    for ip in os.getenv('PRINTER_IPS', '192.168.1.100,192.168.1.50').split(',')
+    ip.strip() for ip in os.getenv('PRINTER_IPS', '192.168.1.100,192.168.1.50').split(',')
     if ip.strip()
 ]
 PRINTER_PORT = int(os.getenv('PRINTER_PORT', '9100'))
 
 
+
 def jordan_now():
     return datetime.now(JORDAN_TZ).replace(tzinfo=None)
+
+
+def send_order_to_printers(order):
+    last_error = None
+    printed = 0
+
+    for printer_ip in PRINTER_IPS:
+        printer = None
+        try:
+            printer = Network(printer_ip, port=PRINTER_PORT, timeout=5)
+            printer.set(align='center', bold=True, width=2, height=2)
+            printer.text('ARAB CAFE\n')
+            printer.set(align='center', bold=False, width=1, height=1)
+            printer.text(f'فاتورة الطلب #{order.id}\n')
+            printer.text(f"{order.created_at.strftime('%Y-%m-%d %H:%M')}\n")
+            printer.text('-------------------------------\n')
+            printer.set(align='right')
+            printer.text(f'الطالب: {order.student_name}\n')
+            printer.text(f'التلفون: {order.phone}\n')
+            printer.text(f'المبنى: {order.building}\n')
+            if order.notes:
+                printer.text(f'ملاحظات: {order.notes}\n')
+            printer.text('-------------------------------\n')
+            printer.set(align='left')
+            for item in order.items:
+                total_line = item.unit_price * item.quantity
+                printer.text(f"{item.item_name} x {item.quantity}\n")
+                printer.text(f"{total_line:.2f} JD\n")
+                printer.text('-------------------------------\n')
+            printer.set(align='right', bold=True)
+            printer.text(f'المجموع: {order.total:.2f} د.أ\n')
+            printer.text('\nشكراً وبالهناء والشفاء\n\n')
+            printer.cut()
+            printed += 1
+        except Exception as exc:
+            last_error = f'{printer_ip}: {exc}'
+        finally:
+            if printer is not None:
+                try:
+                    printer.close()
+                except Exception:
+                    pass
+
+    if printed == 0:
+        raise RuntimeError(last_error or 'تعذر الوصول للطابعات')
+
+    return printed
 
 
 
@@ -95,7 +139,6 @@ class Order(db.Model):
     created_at = db.Column(db.DateTime, default=jordan_now)
     confirmed_at = db.Column(db.DateTime, nullable=True)
     ready_at = db.Column(db.DateTime, nullable=True)
-    receipt_printed_at = db.Column(db.DateTime, nullable=True)
     items = db.relationship('OrderItem', backref='order', cascade='all, delete-orphan', lazy=True)
 
 
@@ -115,82 +158,6 @@ def admin_required(func_):
             return redirect(url_for('admin_login'))
         return func_(*args, **kwargs)
     return wrapper
-
-
-def _format_receipt_lines(order):
-    lines = [
-        {'type': 'title', 'text': 'ARAB CAFE'},
-        {'type': 'text', 'text': f'طلب رقم #{order.id}'},
-        {'type': 'text', 'text': order.created_at.strftime('%Y-%m-%d %H:%M')},
-        {'type': 'line'},
-        {'type': 'text', 'text': f'الطالب: {order.student_name}'},
-        {'type': 'text', 'text': f'التلفون: {order.phone}'},
-        {'type': 'text', 'text': f'المبنى: {order.building}'},
-    ]
-    if order.notes:
-        lines.append({'type': 'text', 'text': f'ملاحظات: {order.notes}'})
-    lines.append({'type': 'line'})
-    for item in order.items:
-        total_price = item.unit_price * item.quantity
-        lines.append({'type': 'text', 'text': f"{item.item_name} x{item.quantity} - {total_price:.2f} JD"})
-    lines.extend([
-        {'type': 'line'},
-        {'type': 'title', 'text': f'TOTAL: {order.total:.2f} JD'},
-        {'type': 'line'},
-        {'type': 'text', 'text': 'Thank you'},
-    ])
-    return lines
-
-
-def send_order_to_network_printers(order):
-    if Network is None:
-        app.logger.warning('python-escpos is not available; skipping network print.')
-        return False
-
-    if not PRINTER_IPS:
-        app.logger.warning('No network printers configured; skipping network print.')
-        return False
-
-    lines = _format_receipt_lines(order)
-    printed_any = False
-
-    for printer_ip in PRINTER_IPS:
-        printer = None
-        try:
-            printer = Network(printer_ip, port=PRINTER_PORT, timeout=5)
-            printer.set(align='center', bold=True, width=2, height=2)
-            printer.text('ARAB CAFE\n')
-            printer.set(align='center', bold=False, width=1, height=1)
-            printer.text(f'طلب رقم #{order.id}\n')
-            printer.text(order.created_at.strftime('%Y-%m-%d %H:%M') + '\n')
-            printer.text('--------------------------------\n')
-            printer.set(align='left')
-            printer.text(f'الطالب: {order.student_name}\n')
-            printer.text(f'التلفون: {order.phone}\n')
-            printer.text(f'المبنى: {order.building}\n')
-            if order.notes:
-                printer.text(f'ملاحظات: {order.notes}\n')
-            printer.text('--------------------------------\n')
-            for item in order.items:
-                total_price = item.unit_price * item.quantity
-                printer.text(f"{item.item_name} x{item.quantity} - {total_price:.2f} JD\n")
-            printer.text('--------------------------------\n')
-            printer.set(align='left', bold=True)
-            printer.text(f'TOTAL: {order.total:.2f} JD\n\n')
-            printer.set(align='center', bold=False)
-            printer.text('شكرا وبالهناء والشفاء\n\n')
-            printer.cut()
-            printed_any = True
-        except Exception as exc:
-            app.logger.exception('Failed printing order %s to printer %s: %s', order.id, printer_ip, exc)
-        finally:
-            if printer is not None:
-                try:
-                    printer.close()
-                except Exception:
-                    pass
-
-    return printed_any
 
 
 def read_seed_file(filename):
@@ -300,15 +267,10 @@ def apply_schema_fixes():
         db.session.execute(text(stmt))
 
     order_cols = {c['name'] for c in inspector.get_columns('order')}
-    order_altered = False
     if 'building' not in order_cols:
         db.session.execute(text("ALTER TABLE 'order' ADD COLUMN building VARCHAR(10) DEFAULT 'I' NOT NULL"))
-        order_altered = True
-    if 'receipt_printed_at' not in order_cols:
-        db.session.execute(text("ALTER TABLE 'order' ADD COLUMN receipt_printed_at DATETIME"))
-        order_altered = True
 
-    if alter_statements or order_altered:
+    if alter_statements or 'building' not in order_cols:
         db.session.commit()
 
 
@@ -587,7 +549,12 @@ def confirm_order(order_id):
     order.status = 'confirmed'
     order.confirmed_at = jordan_now()
     db.session.commit()
-    return redirect(url_for('print_receipt', order_id=order.id))
+    try:
+        send_order_to_printers(order)
+        flash(f'تمت طباعة الطلب رقم #{order.id} على الطابعات.', 'success')
+    except Exception as exc:
+        flash(f'تم تأكيد الطلب لكن الطباعة فشلت: {exc}', 'danger')
+    return redirect(url_for('admin_dashboard'))
 
 
 @app.route(f'/{ADMIN_SECRET_PATH}/order/<int:order_id>/ready', methods=['POST'])
@@ -741,14 +708,22 @@ def delete_menu_item(item_id):
     return redirect(url_for('manage_menu'))
 
 
+@app.route(f'/{ADMIN_SECRET_PATH}/order/<int:order_id>/print', methods=['POST'])
+@admin_required
+def print_order(order_id):
+    order = Order.query.get_or_404(order_id)
+    try:
+        printed = send_order_to_printers(order)
+        flash(f'تمت طباعة الفاتورة على {printed} طابعة.', 'success')
+    except Exception as exc:
+        flash(f'فشلت الطباعة: {exc}', 'danger')
+    return redirect(url_for('admin_dashboard'))
+
+
 @app.route('/receipt/<int:order_id>')
 @admin_required
 def print_receipt(order_id):
     order = Order.query.get_or_404(order_id)
-    if order.receipt_printed_at is None:
-        if send_order_to_network_printers(order):
-            order.receipt_printed_at = jordan_now()
-            db.session.commit()
     return render_template('receipt.html', order=order)
 
 
