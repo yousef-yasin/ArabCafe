@@ -6,12 +6,18 @@ from io import BytesIO
 import json
 import mimetypes
 import os
+import socket
 
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_file, abort, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, inspect, text
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+
+try:
+    from escpos.printer import Network
+except Exception:
+    Network = None
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'cafeteria.db')
@@ -29,70 +35,82 @@ db = SQLAlchemy(app)
 JORDAN_TZ = ZoneInfo('Asia/Amman')
 ADMIN_SECRET_PATH = 'adminarabcafeaau123'
 
-
-def jordan_now():
-    return datetime.now(JORDAN_TZ).replace(tzinfo=None)
-
+PRINTER_IP = os.getenv('PRINTER_IP', '192.168.1.100')
+PRINTER_PORT = int(os.getenv('PRINTER_PORT', '9100'))
 
 
-class Admin(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(100), unique=True, nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
+def _format_money(value):
+    return f"{value:.2f}"
 
 
-class SiteAsset(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    asset_key = db.Column(db.String(100), unique=True, nullable=False)
-    filename = db.Column(db.String(255), nullable=True)
-    mime_type = db.Column(db.String(100), nullable=True)
-    data = db.Column(db.LargeBinary, nullable=True)
-    updated_at = db.Column(db.DateTime, default=jordan_now, onupdate=jordan_now)
+def build_receipt_lines(order):
+    lines = []
+    lines.append('ARAB CAFE')
+    lines.append(f'ORDER #{order.id}')
+    lines.append('-' * 32)
+    lines.append(f'Name: {order.student_name}')
+    lines.append(f'Phone: {order.phone}')
+    lines.append(f'Building: {order.building}')
+    lines.append(f'Date: {order.created_at.strftime("%Y-%m-%d %H:%M")}')
+    lines.append('-' * 32)
+    for item in order.items:
+        item_total = item.unit_price * item.quantity
+        lines.append(f'{item.item_name}')
+        lines.append(f'  {item.quantity} x {_format_money(item.unit_price)} = {_format_money(item_total)} JD')
+    lines.append('-' * 32)
+    lines.append(f'TOTAL: {_format_money(order.total)} JD')
+    if order.notes:
+        lines.append('-' * 32)
+        lines.append(f'Notes: {order.notes}')
+    return lines
 
 
-class Category(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), unique=True, nullable=False)
-    slug = db.Column(db.String(100), unique=True, nullable=False)
-    sort_order = db.Column(db.Integer, default=0)
-    show_image = db.Column(db.Boolean, default=True)
-    items = db.relationship('MenuItem', backref='category', lazy=True, cascade='all, delete-orphan')
+def print_order_to_network_printer(order):
+    if Network is None:
+        raise RuntimeError('python-escpos is not installed')
 
+    try:
+        socket.create_connection((PRINTER_IP, PRINTER_PORT), timeout=3).close()
+    except OSError as exc:
+        raise RuntimeError(f'Printer not reachable at {PRINTER_IP}:{PRINTER_PORT}') from exc
 
-class MenuItem(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(140), nullable=False)
-    description = db.Column(db.String(255), nullable=True)
-    price = db.Column(db.Float, nullable=False)
-    available = db.Column(db.Boolean, default=True)
-    featured = db.Column(db.Boolean, default=False)
-    image_data = db.Column(db.LargeBinary, nullable=True)
-    image_mime_type = db.Column(db.String(100), nullable=True)
-    image_filename = db.Column(db.String(255), nullable=True)
-    category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=False)
-
-
-class Order(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    student_name = db.Column(db.String(120), nullable=False)
-    phone = db.Column(db.String(30), nullable=False)
-    building = db.Column(db.String(10), nullable=False, default='I')
-    notes = db.Column(db.String(255), nullable=True)
-    status = db.Column(db.String(30), default='pending')
-    total = db.Column(db.Float, nullable=False)
-    created_at = db.Column(db.DateTime, default=jordan_now)
-    confirmed_at = db.Column(db.DateTime, nullable=True)
-    ready_at = db.Column(db.DateTime, nullable=True)
-    items = db.relationship('OrderItem', backref='order', cascade='all, delete-orphan', lazy=True)
-
-
-class OrderItem(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
-    menu_item_id = db.Column(db.Integer, db.ForeignKey('menu_item.id'), nullable=False)
-    item_name = db.Column(db.String(140), nullable=False)
-    quantity = db.Column(db.Integer, nullable=False)
-    unit_price = db.Column(db.Float, nullable=False)
+    printer = None
+    try:
+        printer = Network(PRINTER_IP, port=PRINTER_PORT, timeout=5)
+        printer.set(align='center', bold=True, width=2, height=2)
+        printer.text('ARAB CAFE\n')
+        printer.set(align='center', bold=False, width=1, height=1)
+        printer.text(f'ORDER #{order.id}\n')
+        printer.text('-' * 32 + '\n')
+        printer.set(align='left')
+        printer.text(f'Name: {order.student_name}\n')
+        printer.text(f'Phone: {order.phone}\n')
+        printer.text(f'Building: {order.building}\n')
+        printer.text(f'Date: {order.created_at.strftime("%Y-%m-%d %H:%M")}\n')
+        printer.text('-' * 32 + '\n')
+        for item in order.items:
+            item_total = item.unit_price * item.quantity
+            printer.set(bold=True)
+            printer.text(f'{item.item_name}\n')
+            printer.set(bold=False)
+            printer.text(f'  {item.quantity} x {_format_money(item.unit_price)} = {_format_money(item_total)} JD\n')
+        printer.text('-' * 32 + '\n')
+        printer.set(bold=True)
+        printer.text(f'TOTAL: {_format_money(order.total)} JD\n')
+        printer.set(bold=False)
+        if order.notes:
+            printer.text('-' * 32 + '\n')
+            printer.text(f'Notes: {order.notes}\n')
+        printer.text('\n\n')
+        printer.cut()
+    except Exception as exc:
+        raise RuntimeError(f'Failed to print receipt: {exc}') from exc
+    finally:
+        if printer is not None:
+            try:
+                printer.close()
+            except Exception:
+                pass
 
 
 def admin_required(func_):
@@ -647,10 +665,17 @@ def delete_menu_item(item_id):
     return redirect(url_for('manage_menu'))
 
 
-@app.route('/receipt/<int:order_id>')
+@app.route('/receipt/<int:order_id>', methods=['GET', 'POST'])
 @admin_required
 def print_receipt(order_id):
     order = Order.query.get_or_404(order_id)
+    if request.method == 'POST':
+        try:
+            print_order_to_network_printer(order)
+            flash('تم إرسال الفاتورة إلى الطابعة بنجاح.', 'success')
+        except Exception as exc:
+            flash(f'فشل إرسال الفاتورة إلى الطابعة: {exc}', 'danger')
+        return redirect(url_for('admin_dashboard'))
     return render_template('receipt.html', order=order)
 
 
