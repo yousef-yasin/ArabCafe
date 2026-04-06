@@ -34,45 +34,26 @@ db = SQLAlchemy(app)
 
 JORDAN_TZ = ZoneInfo('Asia/Amman')
 ADMIN_SECRET_PATH = 'adminarabcafeaau123'
-
 PRINTER_IP = os.getenv('PRINTER_IP', '192.168.1.100')
 PRINTER_PORT = int(os.getenv('PRINTER_PORT', '9100'))
+
+
+def jordan_now():
+    return datetime.now(JORDAN_TZ).replace(tzinfo=None)
 
 
 def _format_money(value):
     return f"{value:.2f}"
 
 
-def build_receipt_lines(order):
-    lines = []
-    lines.append('ARAB CAFE')
-    lines.append(f'ORDER #{order.id}')
-    lines.append('-' * 32)
-    lines.append(f'Name: {order.student_name}')
-    lines.append(f'Phone: {order.phone}')
-    lines.append(f'Building: {order.building}')
-    lines.append(f'Date: {order.created_at.strftime("%Y-%m-%d %H:%M")}')
-    lines.append('-' * 32)
-    for item in order.items:
-        item_total = item.unit_price * item.quantity
-        lines.append(f'{item.item_name}')
-        lines.append(f'  {item.quantity} x {_format_money(item.unit_price)} = {_format_money(item_total)} JD')
-    lines.append('-' * 32)
-    lines.append(f'TOTAL: {_format_money(order.total)} JD')
-    if order.notes:
-        lines.append('-' * 32)
-        lines.append(f'Notes: {order.notes}')
-    return lines
-
-
 def print_order_to_network_printer(order):
     if Network is None:
-        raise RuntimeError('python-escpos is not installed')
+        raise RuntimeError('python-escpos غير مثبت على السيرفر')
 
     try:
         socket.create_connection((PRINTER_IP, PRINTER_PORT), timeout=3).close()
     except OSError as exc:
-        raise RuntimeError(f'Printer not reachable at {PRINTER_IP}:{PRINTER_PORT}') from exc
+        raise RuntimeError(f'الطابعة غير متاحة على {PRINTER_IP}:{PRINTER_PORT}') from exc
 
     printer = None
     try:
@@ -104,13 +85,74 @@ def print_order_to_network_printer(order):
         printer.text('\n\n')
         printer.cut()
     except Exception as exc:
-        raise RuntimeError(f'Failed to print receipt: {exc}') from exc
+        raise RuntimeError(f'فشل إرسال الفاتورة إلى الطابعة: {exc}') from exc
     finally:
         if printer is not None:
             try:
                 printer.close()
             except Exception:
                 pass
+
+
+
+class Admin(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+
+
+class SiteAsset(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    asset_key = db.Column(db.String(100), unique=True, nullable=False)
+    filename = db.Column(db.String(255), nullable=True)
+    mime_type = db.Column(db.String(100), nullable=True)
+    data = db.Column(db.LargeBinary, nullable=True)
+    updated_at = db.Column(db.DateTime, default=jordan_now, onupdate=jordan_now)
+
+
+class Category(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), unique=True, nullable=False)
+    slug = db.Column(db.String(100), unique=True, nullable=False)
+    sort_order = db.Column(db.Integer, default=0)
+    show_image = db.Column(db.Boolean, default=True)
+    items = db.relationship('MenuItem', backref='category', lazy=True, cascade='all, delete-orphan')
+
+
+class MenuItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(140), nullable=False)
+    description = db.Column(db.String(255), nullable=True)
+    price = db.Column(db.Float, nullable=False)
+    available = db.Column(db.Boolean, default=True)
+    featured = db.Column(db.Boolean, default=False)
+    image_data = db.Column(db.LargeBinary, nullable=True)
+    image_mime_type = db.Column(db.String(100), nullable=True)
+    image_filename = db.Column(db.String(255), nullable=True)
+    category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=False)
+
+
+class Order(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    student_name = db.Column(db.String(120), nullable=False)
+    phone = db.Column(db.String(30), nullable=False)
+    building = db.Column(db.String(10), nullable=False, default='I')
+    notes = db.Column(db.String(255), nullable=True)
+    status = db.Column(db.String(30), default='pending')
+    total = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, default=jordan_now)
+    confirmed_at = db.Column(db.DateTime, nullable=True)
+    ready_at = db.Column(db.DateTime, nullable=True)
+    items = db.relationship('OrderItem', backref='order', cascade='all, delete-orphan', lazy=True)
+
+
+class OrderItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
+    menu_item_id = db.Column(db.Integer, db.ForeignKey('menu_item.id'), nullable=False)
+    item_name = db.Column(db.String(140), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    unit_price = db.Column(db.Float, nullable=False)
 
 
 def admin_required(func_):
@@ -674,7 +716,7 @@ def print_receipt(order_id):
             print_order_to_network_printer(order)
             flash('تم إرسال الفاتورة إلى الطابعة بنجاح.', 'success')
         except Exception as exc:
-            flash(f'فشل إرسال الفاتورة إلى الطابعة: {exc}', 'danger')
+            flash(str(exc), 'danger')
         return redirect(url_for('admin_dashboard'))
     return render_template('receipt.html', order=order)
 

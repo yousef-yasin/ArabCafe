@@ -30,9 +30,9 @@
       {% endif %}
 
       <div class="d-flex flex-wrap gap-2 mt-3">
-        <form method="POST" action="{{ url_for('print_receipt', order_id=order.id) }}">
-          <button type="submit" class="btn btn-dark rounded-pill px-4">طباعة الفاتورة</button>
-        </form>
+        <a href="{{ url_for('print_receipt', order_id=order.id) }}" class="btn btn-dark rounded-pill px-4">
+          طباعة الفاتورة
+        </a>
 
         {% if order.status != 'cancelled' %}
         <form method="POST" action="{{ url_for('cancel_order', order_id=order.id) }}">
