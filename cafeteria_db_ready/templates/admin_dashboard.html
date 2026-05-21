@@ -10,6 +10,7 @@
     <div class="d-flex flex-wrap gap-2">
       <a href="{{ url_for('manage_menu') }}" class="btn btn-light rounded-pill px-4">إدارة المنيو</a>
       <a href="{{ url_for('reports') }}" class="btn btn-warning rounded-pill px-4">تقارير الأيام</a>
+      <a href="{{ url_for('blocked_users') }}" class="btn btn-outline-light rounded-pill px-4">صفحة البلوكات</a>
       <form method="POST" action="{{ url_for('delete_all_orders') }}" onsubmit="return confirm('متأكد أنك تريد حذف جميع الطلبات؟');">
         <button type="submit" class="btn btn-danger rounded-pill px-4">حذف الطلبات</button>
       </form>
@@ -23,6 +24,7 @@
     <div class="col-lg col-md-4 col-6"><div class="stat-card"><span>ملغية</span><strong>{{ stats.cancelled }}</strong></div></div>
     <div class="col-lg col-md-4 col-6"><div class="stat-card"><span>إجمالي الطلبات</span><strong>{{ stats.total_orders }}</strong></div></div>
     <div class="col-lg col-md-4 col-6"><div class="stat-card"><span>مبيعات اليوم</span><strong>{{ '%.2f'|format(stats.sales_today) }} د.أ</strong></div></div>
+    <div class="col-lg col-md-4 col-6"><div class="stat-card"><span>المحظورين</span><strong>{{ stats.blocked_users }}</strong></div></div>
   </div>
 
   <div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4" role="alert">

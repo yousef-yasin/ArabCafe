@@ -19,7 +19,14 @@
         </div>
         {% endif %}
       </a>
-      
+      {% if session.get('admin_id') and request.endpoint != 'admin_login' %}
+      <div class="d-flex flex-wrap gap-2 ms-auto">
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-light btn-sm rounded-pill px-3">الطلبات</a>
+        <a href="{{ url_for('blocked_users') }}" class="btn btn-danger btn-sm rounded-pill px-3">صفحة البلوكات</a>
+        <a href="{{ url_for('manage_menu') }}" class="btn btn-warning btn-sm rounded-pill px-3">إدارة المنيو</a>
+        <a href="{{ url_for('admin_logout') }}" class="btn btn-outline-light btn-sm rounded-pill px-3">خروج</a>
+      </div>
+      {% endif %}
     </div>
   </nav>
 

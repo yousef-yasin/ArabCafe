@@ -4,16 +4,20 @@ from functools import wraps
 from collections import defaultdict
 from io import BytesIO
 import json
+import logging
 import mimetypes
 import os
-
-from escpos.printer import Network
 
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_file, abort, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, inspect, text
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+
+try:
+    from escpos.printer import Network
+except Exception:
+    Network = None
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'cafeteria.db')
@@ -30,64 +34,16 @@ db = SQLAlchemy(app)
 
 JORDAN_TZ = ZoneInfo('Asia/Amman')
 ADMIN_SECRET_PATH = 'adminarabcafeaau123'
-
 PRINTER_IPS = [
-    ip.strip() for ip in os.getenv('PRINTER_IPS', '192.168.1.100,192.168.1.50').split(',')
+    ip.strip()
+    for ip in os.getenv('PRINTER_IPS', '192.168.1.100,192.168.1.50').split(',')
     if ip.strip()
 ]
 PRINTER_PORT = int(os.getenv('PRINTER_PORT', '9100'))
 
 
-
 def jordan_now():
     return datetime.now(JORDAN_TZ).replace(tzinfo=None)
-
-
-def send_order_to_printers(order):
-    last_error = None
-    printed = 0
-
-    for printer_ip in PRINTER_IPS:
-        printer = None
-        try:
-            printer = Network(printer_ip, port=PRINTER_PORT, timeout=5)
-            printer.set(align='center', bold=True, width=2, height=2)
-            printer.text('ARAB CAFE\n')
-            printer.set(align='center', bold=False, width=1, height=1)
-            printer.text(f'فاتورة الطلب #{order.id}\n')
-            printer.text(f"{order.created_at.strftime('%Y-%m-%d %H:%M')}\n")
-            printer.text('-------------------------------\n')
-            printer.set(align='right')
-            printer.text(f'الطالب: {order.student_name}\n')
-            printer.text(f'التلفون: {order.phone}\n')
-            printer.text(f'المبنى: {order.building}\n')
-            if order.notes:
-                printer.text(f'ملاحظات: {order.notes}\n')
-            printer.text('-------------------------------\n')
-            printer.set(align='left')
-            for item in order.items:
-                total_line = item.unit_price * item.quantity
-                printer.text(f"{item.item_name} x {item.quantity}\n")
-                printer.text(f"{total_line:.2f} JD\n")
-                printer.text('-------------------------------\n')
-            printer.set(align='right', bold=True)
-            printer.text(f'المجموع: {order.total:.2f} د.أ\n')
-            printer.text('\nشكراً وبالهناء والشفاء\n\n')
-            printer.cut()
-            printed += 1
-        except Exception as exc:
-            last_error = f'{printer_ip}: {exc}'
-        finally:
-            if printer is not None:
-                try:
-                    printer.close()
-                except Exception:
-                    pass
-
-    if printed == 0:
-        raise RuntimeError(last_error or 'تعذر الوصول للطابعات')
-
-    return printed
 
 
 
@@ -132,6 +88,7 @@ class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_name = db.Column(db.String(120), nullable=False)
     phone = db.Column(db.String(30), nullable=False)
+    customer_ip = db.Column(db.String(80), nullable=True)
     building = db.Column(db.String(10), nullable=False, default='I')
     notes = db.Column(db.String(255), nullable=True)
     status = db.Column(db.String(30), default='pending')
@@ -139,6 +96,7 @@ class Order(db.Model):
     created_at = db.Column(db.DateTime, default=jordan_now)
     confirmed_at = db.Column(db.DateTime, nullable=True)
     ready_at = db.Column(db.DateTime, nullable=True)
+    receipt_printed_at = db.Column(db.DateTime, nullable=True)
     items = db.relationship('OrderItem', backref='order', cascade='all, delete-orphan', lazy=True)
 
 
@@ -151,6 +109,41 @@ class OrderItem(db.Model):
     unit_price = db.Column(db.Float, nullable=False)
 
 
+class BlockedUser(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    ip_address = db.Column(db.String(80), unique=True, nullable=False)
+    student_name = db.Column(db.String(120), nullable=True)
+    phone = db.Column(db.String(30), nullable=True)
+    reason = db.Column(db.String(255), nullable=True)
+    blocked_at = db.Column(db.DateTime, default=jordan_now)
+    blocked_by = db.Column(db.String(100), nullable=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=True)
+    order = db.relationship('Order', lazy=True)
+
+
+def normalize_ip(ip_address):
+    return (ip_address or '').strip().lower()
+
+
+def get_client_ip():
+    forwarded_for = request.headers.get('X-Forwarded-For', '')
+    if forwarded_for:
+        return normalize_ip(forwarded_for.split(',')[0])
+    real_ip = request.headers.get('X-Real-IP', '')
+    if real_ip:
+        return normalize_ip(real_ip)
+    return normalize_ip(request.remote_addr or 'unknown')
+
+
+def is_ip_blocked(ip_address=None):
+    ip_address = normalize_ip(ip_address or get_client_ip())
+    if not ip_address:
+        return None
+    return BlockedUser.query.filter(
+        func.lower(func.trim(BlockedUser.ip_address)) == ip_address
+    ).first()
+
+
 def admin_required(func_):
     @wraps(func_)
     def wrapper(*args, **kwargs):
@@ -158,6 +151,82 @@ def admin_required(func_):
             return redirect(url_for('admin_login'))
         return func_(*args, **kwargs)
     return wrapper
+
+
+def _format_receipt_lines(order):
+    lines = [
+        {'type': 'title', 'text': 'ARAB CAFE'},
+        {'type': 'text', 'text': f'طلب رقم #{order.id}'},
+        {'type': 'text', 'text': order.created_at.strftime('%Y-%m-%d %H:%M')},
+        {'type': 'line'},
+        {'type': 'text', 'text': f'الطالب: {order.student_name}'},
+        {'type': 'text', 'text': f'التلفون: {order.phone}'},
+        {'type': 'text', 'text': f'المبنى: {order.building}'},
+    ]
+    if order.notes:
+        lines.append({'type': 'text', 'text': f'ملاحظات: {order.notes}'})
+    lines.append({'type': 'line'})
+    for item in order.items:
+        total_price = item.unit_price * item.quantity
+        lines.append({'type': 'text', 'text': f"{item.item_name} x{item.quantity} - {total_price:.2f} JD"})
+    lines.extend([
+        {'type': 'line'},
+        {'type': 'title', 'text': f'TOTAL: {order.total:.2f} JD'},
+        {'type': 'line'},
+        {'type': 'text', 'text': 'Thank you'},
+    ])
+    return lines
+
+
+def send_order_to_network_printers(order):
+    if Network is None:
+        app.logger.warning('python-escpos is not available; skipping network print.')
+        return False
+
+    if not PRINTER_IPS:
+        app.logger.warning('No network printers configured; skipping network print.')
+        return False
+
+    lines = _format_receipt_lines(order)
+    printed_any = False
+
+    for printer_ip in PRINTER_IPS:
+        printer = None
+        try:
+            printer = Network(printer_ip, port=PRINTER_PORT, timeout=5)
+            printer.set(align='center', bold=True, width=2, height=2)
+            printer.text('ARAB CAFE\n')
+            printer.set(align='center', bold=False, width=1, height=1)
+            printer.text(f'طلب رقم #{order.id}\n')
+            printer.text(order.created_at.strftime('%Y-%m-%d %H:%M') + '\n')
+            printer.text('--------------------------------\n')
+            printer.set(align='left')
+            printer.text(f'الطالب: {order.student_name}\n')
+            printer.text(f'التلفون: {order.phone}\n')
+            printer.text(f'المبنى: {order.building}\n')
+            if order.notes:
+                printer.text(f'ملاحظات: {order.notes}\n')
+            printer.text('--------------------------------\n')
+            for item in order.items:
+                total_price = item.unit_price * item.quantity
+                printer.text(f"{item.item_name} x{item.quantity} - {total_price:.2f} JD\n")
+            printer.text('--------------------------------\n')
+            printer.set(align='left', bold=True)
+            printer.text(f'TOTAL: {order.total:.2f} JD\n\n')
+            printer.set(align='center', bold=False)
+            printer.text('شكرا وبالهناء والشفاء\n\n')
+            printer.cut()
+            printed_any = True
+        except Exception as exc:
+            app.logger.exception('Failed printing order %s to printer %s: %s', order.id, printer_ip, exc)
+        finally:
+            if printer is not None:
+                try:
+                    printer.close()
+                except Exception:
+                    pass
+
+    return printed_any
 
 
 def read_seed_file(filename):
@@ -170,16 +239,16 @@ def read_seed_file(filename):
 
 
 CATEGORY_IMAGE_FILES = {
-    'مشروبات ساخنة': 'hot-coffee.png',
-    'قهوة باردة': 'iced-coffee.png',
-    'موهيتو': 'mojito.png',
-    'آيس تي': 'iced-tea.png',
-    'بودر ومشروبات آلة': 'powder.png',
+    'القهوة الساخنة': 'hot-coffee.png',
+    'القهوة الباردة': 'iced-coffee.png',
+    'الموهيتوس': 'mojito.png',
+    'الشاي المثلج': 'iced-tea.png',
+    'الإضافات (بودرة)': 'powder.png',
     'ميلك شيك': 'milkshake.png',
     'السناك': 'snacks.png',
-    'بيتزا من الفرن': 'pizza.png',
+    'بيتزا من فرع B': 'pizza.png',
     'برغر': 'burger.png',
-    'بوكسات عربية': 'box.png',
+    'بوكسات عربي': 'box.png',
     'سلطات': 'salad.png',
     'ساندويش خفيف للإفطار': 'breakfast.png',
     'إضافات': None,
@@ -188,31 +257,34 @@ CATEGORY_IMAGE_FILES = {
 
 MENU_DATA = [
     {
-        'name': 'مشروبات ساخنة', 'slug': 'hot-coffee', 'sort_order': 1, 'show_image': True,
+        'name': 'القهوة الساخنة', 'slug': 'hot-coffee', 'sort_order': 1, 'show_image': True,
         'items': [
             ('Double Espresso', 1.25), ('Americano', 1.25), ('Filter Coffee', 1.25),
             ('Latte', 2.00), ('Cappuccino', 2.00), ('Flat White', 2.25),
             ('Dark Mocha', 2.50), ('White Mocha', 2.50), ('Arab Hot Chocolate', 2.00),
-            ('Spanish Latte Hot', 2.50), ('Caramel Macchiato Hot', 2.50), ('Extra', 0.25),
+            ('Spanish Latte Hot', 2.50), ('Caramel Macchiato Hot', 2.50),
+            ('Extra Flavor', 0.25, 'Vanilla OR Caramel OR Hazelnut OR Coconut'),
         ]
     },
     {
-        'name': 'قهوة باردة', 'slug': 'iced-coffee', 'sort_order': 2, 'show_image': True,
+        'name': 'القهوة الباردة', 'slug': 'iced-coffee', 'sort_order': 2, 'show_image': True,
         'items': [
-            ('Ice Latte', 2.00), ('Ice Americano', 1.50), ('Ice White Mocha', 2.50), ('Ice Dark Mocha', 2.50),
-            ('Ice Caramel Macchiato', 2.50), ('Ice Spanish Latte', 2.50), ('Frappe', 2.50), ('Extra', 0.25),
+            ('Ice Latte', 2.00), ('Ice Americano', 1.50), ('Ice White Mocha', 2.50),
+            ('Ice Dark Mocha', 2.50), ('Ice Caramel Macchiato', 2.50), ('Ice Spanish Latte', 2.50),
+            ('Frappe', 2.50, 'Vanilla or caramel or chocolate'),
+            ('Extra Flavor', 0.25, 'Vanilla OR Caramel OR Hazelnut OR Coconut'),
         ]
     },
     {
-        'name': 'موهيتو', 'slug': 'mojito', 'sort_order': 3, 'show_image': True,
+        'name': 'الموهيتوس', 'slug': 'mojito', 'sort_order': 3, 'show_image': True,
         'items': [('Strawberry & Mix Berries', 2.00), ('Peach & Mango', 2.00), ('Blueberry & Passion', 2.00)]
     },
     {
-        'name': 'آيس تي', 'slug': 'iced-tea', 'sort_order': 4, 'show_image': True,
+        'name': 'الشاي المثلج', 'slug': 'iced-tea', 'sort_order': 4, 'show_image': True,
         'items': [('Peach Ice Tea', 2.00), ('Mango & Peach Ice Tea', 2.00), ('Strawberry Ice Tea', 2.00), ('Mix Berry & Strawberry Ice Tea', 2.00)]
     },
     {
-        'name': 'بودر ومشروبات آلة', 'slug': 'powder', 'sort_order': 5, 'show_image': True,
+        'name': 'الإضافات (بودرة)', 'slug': 'powder', 'sort_order': 5, 'show_image': True,
         'items': [('Turkish Coffee', 0.75), ('Nescafe Machine', 0.75), ('Hot Chocolate Machine', 0.75), ('Chai Karak', 0.75), ('Sahlab', 0.75), ('Caramel Cappuccino', 0.75)]
     },
     {
@@ -221,31 +293,69 @@ MENU_DATA = [
     },
     {
         'name': 'السناك', 'slug': 'snacks', 'sort_order': 7, 'show_image': True,
-        'items': [('شاورما عربي', 1.50), ('شاورما عربي دبل', 2.50), ('برغر فرنسي أو تورتيلا', 2.00), ('برغر سوبرم', 2.35), ('برغر بالكريمة', 2.50), ('فاهيتا دجاج', 2.00), ('فاهيتا لحمة', 3.00), ('مكسيكان', 2.00), ('تشيكن باربكيو', 2.35), ('تشيكن ألفريدو', 2.25), ('نونا', 2.25), ('ديناميت', 2.35), ('كوردن بلو', 2.50), ('تشيكن هافاو', 2.25)]
+        'items': [
+            ('شاورما عربي - ساندويش', 1.50), ('شاورما عربي - وجبة', 2.50),
+            ('شاورما عربي دبل - وجبة', 3.75),
+            ('زنجر فرنسي أو تورتيلا - ساندويش', 2.00), ('زنجر فرنسي أو تورتيلا - وجبة', 3.00),
+            ('زنجر سوبريم - ساندويش', 2.25), ('زنجر سوبريم - وجبة', 3.25),
+            ('زنجر بالكريمة - ساندويش', 2.50), ('زنجر بالكريمة - وجبة', 3.50),
+            ('فاهيتا دجاج - ساندويش', 2.00), ('فاهيتا دجاج - وجبة', 3.00),
+            ('فاهيتا لحمة - ساندويش', 3.00), ('فاهيتا لحمة - وجبة', 4.00),
+            ('مكسيكان - ساندويش', 2.00), ('مكسيكان - وجبة', 3.00),
+            ('تشيكن باربكيو - ساندويش', 2.25), ('تشيكن باربكيو - وجبة', 3.25),
+            ('تشيكن ألفريدو - ساندويش', 2.25), ('تشيكن ألفريدو - وجبة', 3.25),
+            ('تونا - ساندويش', 2.25), ('تونا - وجبة', 3.25),
+            ('ديناميت - ساندويش', 2.25), ('ديناميت - وجبة', 3.25),
+            ('كوردن بلو - ساندويش', 2.50), ('كوردن بلو - وجبة', 3.50),
+            ('تشيكن بافلو - ساندويش', 2.25), ('تشيكن بافلو - وجبة', 3.25),
+        ]
     },
     {
-        'name': 'بيتزا من الفرن', 'slug': 'pizza', 'sort_order': 8, 'show_image': True,
-        'items': [('بيتزا الفريدو', 2.75), ('بيتزا التوست', 2.75), ('بيتزا بولو', 2.75), ('بيتزا باربكيو', 2.75), ('بيتزا خضار', 2.50), ('بيتزا سلامي', 2.50), ('بيتزا مارجريتا', 2.00), ('بيتزا الفريدو كبير', 4.00), ('بيتزا التوست كبير', 4.00), ('بيتزا بولو كبير', 4.00), ('بيتزا باربكيو كبير', 4.00), ('بيتزا خضار كبير', 3.50), ('بيتزا سلامي كبير', 3.50), ('بيتزا مارجريتا كبير', 3.00)]
+        'name': 'بوكسات عربي', 'slug': 'boxes', 'sort_order': 8, 'show_image': True,
+        'items': [
+            ('بوكس البطاطا', 1.00), ('بوكس الودجز', 1.25), ('بوكس البطاطا مع الجبنة', 1.50),
+            ('بوكس الودجز مع الجبنة', 1.75), ('بوكس البرجر', 2.50), ('بوكس البرجر مع الكريمة', 3.00),
+            ('بوكس الهوت دوغ', 2.25), ('إضافة علبة مخلل', 0.25), ('إضافة علبة كوكتيل', 0.25),
+            ('إضافة علبة زيتون', 0.25), ('إضافة علبة جبنة', 0.25),
+        ]
     },
     {
-        'name': 'برغر', 'slug': 'burger', 'sort_order': 9, 'show_image': True,
-        'items': [('سكالوب', 1.50), ('كلاب هاوس برغر', 1.50), ('كرسبي عرب تشكن', 2.50), ('عرب برغر 150 غ', 2.50), ('سماش وايت 150 غ', 2.50), ('ماشروم 150 غ', 2.50), ('عرب كلاسيك 150 غ', 2.50), ('برغر رانشي 150 غ', 2.50), ('سماش برغر 100 غ', 2.00), ('سكالوب كبير', 2.50), ('كلاب هاوس برغر كبير', 2.50), ('كرسبي عرب تشكن كبير', 3.50), ('عرب برغر كبير', 3.50), ('سماش وايت كبير', 3.50), ('ماشروم كبير', 3.50), ('عرب كلاسيك كبير', 3.50), ('برغر رانشي كبير', 3.50), ('سماش برغر كبير', 3.00)]
-    },
-    {
-        'name': 'بوكسات عربية', 'slug': 'boxes', 'sort_order': 10, 'show_image': True,
-        'items': [('بوكس البطاطا', 1.00), ('بوكس الودجز', 1.25), ('بوكس البطاطا مع الجبنة', 1.50), ('بوكس الودجز مع الجبنة', 1.75), ('بوكس البرجر', 2.50), ('بوكس البرجر مع الكريمة', 3.00), ('بوكس الصوت دوغ', 2.25)]
-    },
-    {
-        'name': 'سلطات', 'slug': 'salads', 'sort_order': 11, 'show_image': True,
+        'name': 'سلطات', 'slug': 'salads', 'sort_order': 9, 'show_image': True,
         'items': [('سلطة سيزر', 1.50), ('سلطة يونانية', 2.00), ('سلطة روكا', 1.25), ('سلطة تونا', 2.50), ('إضافة صدر دجاج', 1.00)]
     },
     {
-        'name': 'ساندويش خفيف للإفطار', 'slug': 'breakfast', 'sort_order': 12, 'show_image': True,
-        'items': [('سنورة مع لبنة', 0.75), ('بيض', 0.75), ('بطاطا ساندويش', 1.00), ('هالابينو', 1.00), ('مكس أجبان', 1.00), ('كبدة', 1.00), ('جبنة فيتا', 1.25), ('حلوم مشوي', 1.50), ('تركي مع مكس أجبان', 1.50), ('هوت دوغ', 1.50)]
+        'name': 'بيتزا من فرع B', 'slug': 'pizza', 'sort_order': 10, 'show_image': True,
+        'items': [
+            ('بيتزا الفريدو - صغير', 2.75), ('بيتزا الفريدو - كبير', 4.00),
+            ('بيتزا زنجر - صغير', 2.75), ('بيتزا زنجر - كبير', 4.00),
+            ('بيتزا بافلو - صغير', 2.75), ('بيتزا بافلو - كبير', 4.00),
+            ('بيتزا باربيكيو - صغير', 2.75), ('بيتزا باربيكيو - كبير', 4.00),
+            ('بيتزا خضار - صغير', 2.50), ('بيتزا خضار - كبير', 3.50),
+            ('بيتزا سلاحي - صغير', 2.50), ('بيتزا سلاحي - كبير', 3.50),
+            ('بيتزا مارغريتا - صغير', 2.00), ('بيتزا مارغريتا - كبير', 3.00),
+        ]
     },
     {
-        'name': 'إضافات', 'slug': 'extras', 'sort_order': 13, 'show_image': False,
-        'items': [('علبة جبنة', 0.25), ('علبة كوكتيل', 0.25), ('علبة زيتون', 0.25), ('علبة جبنة إضافية', 0.25)]
+        'name': 'برغر', 'slug': 'burger', 'sort_order': 11, 'show_image': True,
+        'items': [
+            ('سكالوب - ساندويش', 1.50), ('سكالوب - وجبة', 2.50),
+            ('كلاسك برغر - ساندويش', 1.50), ('كلاسك برغر - وجبة', 2.50),
+            ('كرسبي عرب تشكن - ساندويش', 2.50), ('كرسبي عرب تشكن - وجبة', 3.50),
+            ('عرب برغر 150غ - ساندويش', 2.50), ('عرب برغر 150غ - وجبة', 3.50),
+            ('سماش وايت 150غ - ساندويش', 2.50), ('سماش وايت 150غ - وجبة', 3.50),
+            ('ماشروم 150غ - ساندويش', 2.50), ('ماشروم 150غ - وجبة', 3.50),
+            ('عرب كلاسك 150غ - ساندويش', 2.50), ('عرب كلاسك 150غ - وجبة', 3.50),
+            ('برغر تيسي 150غ - ساندويش', 2.50), ('برغر تيسي 150غ - وجبة', 3.50),
+            ('سماش برغر 100غ - ساندويش', 2.00), ('سماش برغر 100غ - وجبة', 3.00),
+        ]
+    },
+    {
+        'name': 'ساندويش خفيف للإفطار', 'slug': 'breakfast', 'sort_order': 12, 'show_image': True,
+        'items': [
+            ('سنورة مع لبنة', 0.75), ('بيض', 0.75), ('بطاطا ساندويش', 1.00), ('فلافل', 1.00),
+            ('مكس أجبان', 1.00), ('كبدة', 1.00), ('جبنة فيتا', 1.25), ('حلوم مشوي', 1.50),
+            ('تركي مع مكس أجبان', 1.50), ('هوت دوغ', 1.50),
+        ]
     },
 ]
 
@@ -267,10 +377,21 @@ def apply_schema_fixes():
         db.session.execute(text(stmt))
 
     order_cols = {c['name'] for c in inspector.get_columns('order')}
+    order_altered = False
     if 'building' not in order_cols:
         db.session.execute(text("ALTER TABLE 'order' ADD COLUMN building VARCHAR(10) DEFAULT 'I' NOT NULL"))
+        order_altered = True
+    if 'receipt_printed_at' not in order_cols:
+        db.session.execute(text("ALTER TABLE 'order' ADD COLUMN receipt_printed_at DATETIME"))
+        order_altered = True
+    if 'customer_ip' not in order_cols:
+        db.session.execute(text("ALTER TABLE 'order' ADD COLUMN customer_ip VARCHAR(80)"))
+        order_altered = True
 
-    if alter_statements or 'building' not in order_cols:
+    if 'blocked_user' not in inspector.get_table_names():
+        BlockedUser.__table__.create(db.engine)
+
+    if alter_statements or order_altered:
         db.session.commit()
 
 
@@ -414,8 +535,22 @@ def menu_item_image(item_id):
     return send_file(BytesIO(item.image_data), mimetype=item.image_mime_type or 'image/png', download_name=item.image_filename or f'item-{item.id}.png')
 
 
+@app.route('/blocked')
+def blocked_notice():
+    blocked_user = is_ip_blocked()
+    if not blocked_user:
+        return redirect(url_for('index'))
+    response = app.make_response(render_template('blocked.html', blocked_user=blocked_user))
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
+
 @app.route('/')
 def index():
+    if is_ip_blocked():
+        return redirect(url_for('blocked_notice'))
     categories = Category.query.order_by(Category.sort_order, Category.id).all()
     featured_items = MenuItem.query.filter_by(available=True, featured=True).limit(8).all()
     return render_template('student_home.html', categories=categories, featured_items=featured_items)
@@ -423,6 +558,11 @@ def index():
 
 @app.route('/place-order', methods=['POST'])
 def place_order():
+    client_ip = get_client_ip()
+    if is_ip_blocked(client_ip):
+        flash('تم حظر هذا الجهاز من إرسال الطلبات.', 'danger')
+        return redirect(url_for('blocked_notice'))
+
     student_name = request.form.get('student_name', '').strip()
     phone = request.form.get('phone', '').strip()
     building = request.form.get('building', '').strip().upper()
@@ -463,7 +603,7 @@ def place_order():
         flash('المنتجات المختارة غير صالحة أو غير متاحة حالياً.', 'danger')
         return redirect(url_for('index'))
 
-    order = Order(student_name=student_name, phone=phone, building=building, notes=notes, total=round(total, 2))
+    order = Order(student_name=student_name, phone=phone, customer_ip=client_ip, building=building, notes=notes, total=round(total, 2))
     db.session.add(order)
     db.session.flush()
 
@@ -510,6 +650,7 @@ def admin_dashboard():
         'ready': Order.query.filter_by(status='ready').count(),
         'cancelled': Order.query.filter_by(status='cancelled').count(),
         'total_orders': Order.query.count(),
+        'blocked_users': BlockedUser.query.count(),
         'sales_today': round(
             db.session.query(func.coalesce(func.sum(Order.total), 0.0))
             .filter(func.date(Order.created_at) == jordan_now().date().isoformat())
@@ -549,12 +690,7 @@ def confirm_order(order_id):
     order.status = 'confirmed'
     order.confirmed_at = jordan_now()
     db.session.commit()
-    try:
-        send_order_to_printers(order)
-        flash(f'تمت طباعة الطلب رقم #{order.id} على الطابعات.', 'success')
-    except Exception as exc:
-        flash(f'تم تأكيد الطلب لكن الطباعة فشلت: {exc}', 'danger')
-    return redirect(url_for('admin_dashboard'))
+    return redirect(url_for('print_receipt', order_id=order.id))
 
 
 @app.route(f'/{ADMIN_SECRET_PATH}/order/<int:order_id>/ready', methods=['POST'])
@@ -586,6 +722,88 @@ def delete_all_orders():
     db.session.commit()
     flash(f'تم حذف جميع الطلبات ({deleted_orders}) وكل العناصر التابعة إلها ({deleted_items}).', 'warning')
     return redirect(url_for('admin_dashboard'))
+
+
+@app.route(f'/{ADMIN_SECRET_PATH}/blocks')
+@admin_required
+def blocked_users():
+    blocks = BlockedUser.query.order_by(BlockedUser.blocked_at.desc()).all()
+    return render_template('blocked_users.html', blocks=blocks)
+
+
+@app.route(f'/{ADMIN_SECRET_PATH}/order/<int:order_id>/block', methods=['POST'])
+@admin_required
+def block_order_user(order_id):
+    order = Order.query.get_or_404(order_id)
+    ip_address = normalize_ip(order.customer_ip or request.form.get('ip_address', ''))
+    reason = request.form.get('reason', '').strip()
+
+    if not ip_address:
+        flash('ما قدرنا نحدد IP لهذا الطلب، لذلك لم يتم الحظر.', 'danger')
+        return redirect(url_for('admin_dashboard'))
+
+    block = BlockedUser.query.filter_by(ip_address=ip_address).first()
+    if not block:
+        block = BlockedUser(ip_address=ip_address)
+        db.session.add(block)
+
+    block.student_name = order.student_name
+    block.phone = order.phone
+    block.reason = reason or f'Blocked from order #{order.id}'
+    block.blocked_at = jordan_now()
+    block.blocked_by = session.get('admin_username')
+    block.order_id = order.id
+    db.session.commit()
+    flash(f'تم حظر IP: {ip_address}', 'warning')
+    return redirect(url_for('blocked_users'))
+
+
+@app.route(f'/{ADMIN_SECRET_PATH}/blocks/add', methods=['POST'])
+@admin_required
+def add_blocked_user():
+    ip_address = normalize_ip(request.form.get('ip_address', ''))
+    student_name = request.form.get('student_name', '').strip()
+    phone = request.form.get('phone', '').strip()
+    reason = request.form.get('reason', '').strip()
+
+    if not ip_address:
+        flash('لازم تدخل IP Address.', 'danger')
+        return redirect(url_for('blocked_users'))
+
+    block = BlockedUser.query.filter_by(ip_address=ip_address).first()
+    if not block:
+        block = BlockedUser(ip_address=ip_address)
+        db.session.add(block)
+
+    block.student_name = student_name or block.student_name
+    block.phone = phone or block.phone
+    block.reason = reason or block.reason or 'Manual block'
+    block.blocked_at = jordan_now()
+    block.blocked_by = session.get('admin_username')
+    db.session.commit()
+    flash(f'تم إضافة البلوك لـ IP: {ip_address}', 'success')
+    return redirect(url_for('blocked_users'))
+
+
+@app.route(f'/{ADMIN_SECRET_PATH}/blocks/<int:block_id>/unblock', methods=['POST'])
+@admin_required
+def unblock_user(block_id):
+    block = BlockedUser.query.get_or_404(block_id)
+    ip_address = normalize_ip(block.ip_address)
+
+    # احذف كل السجلات المطابقة لنفس الـ IP حتى لو كان فيه مسافات/حروف مختلفة من نسخة قديمة.
+    matching_blocks = BlockedUser.query.filter(
+        func.lower(func.trim(BlockedUser.ip_address)) == ip_address
+    ).all()
+    if not matching_blocks:
+        matching_blocks = [block]
+
+    for matching_block in matching_blocks:
+        db.session.delete(matching_block)
+
+    db.session.commit()
+    flash(f'تم إزالة البلوك عن IP: {ip_address}', 'success')
+    return redirect(url_for('blocked_users'))
 
 
 @app.route(f'/{ADMIN_SECRET_PATH}/menu', methods=['GET', 'POST'])
@@ -708,22 +926,14 @@ def delete_menu_item(item_id):
     return redirect(url_for('manage_menu'))
 
 
-@app.route(f'/{ADMIN_SECRET_PATH}/order/<int:order_id>/print', methods=['POST'])
-@admin_required
-def print_order(order_id):
-    order = Order.query.get_or_404(order_id)
-    try:
-        printed = send_order_to_printers(order)
-        flash(f'تمت طباعة الفاتورة على {printed} طابعة.', 'success')
-    except Exception as exc:
-        flash(f'فشلت الطباعة: {exc}', 'danger')
-    return redirect(url_for('admin_dashboard'))
-
-
 @app.route('/receipt/<int:order_id>')
 @admin_required
 def print_receipt(order_id):
     order = Order.query.get_or_404(order_id)
+    if order.receipt_printed_at is None:
+        if send_order_to_network_printers(order):
+            order.receipt_printed_at = jordan_now()
+            db.session.commit()
     return render_template('receipt.html', order=order)
 
 

@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="empty-box text-center p-5">
+    <h1 class="mb-3">تم حظر الطلبات من هذا الجهاز</h1>
+    <p class="text-muted mb-2">لا يمكنك إرسال طلبات جديدة حالياً من هذا الـ IP.</p>
+    {% if blocked_user and blocked_user.reason %}
+      <p class="mb-0"><strong>السبب:</strong> {{ blocked_user.reason }}</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

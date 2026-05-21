@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container py-3">
+  <div class="dashboard-hero mb-4">
+    <div>
+      <h1 class="mb-2">صفحة البلوكات</h1>
+      <p class="mb-0 text-white-50">عرض المستخدمين المحظورين حسب IP وإزالة البلوك عنهم.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a href="{{ url_for('admin_dashboard') }}" class="btn btn-light rounded-pill px-4">رجوع للطلبات</a>
+      <a href="{{ url_for('manage_menu') }}" class="btn btn-warning rounded-pill px-4">إدارة المنيو</a>
+    </div>
+  </div>
+
+  <div class="order-card mb-4">
+    <h4 class="mb-3">إضافة بلوك يدوي</h4>
+    <form method="POST" action="{{ url_for('add_blocked_user') }}" class="row g-3">
+      <div class="col-md-3">
+        <label class="form-label">IP Address</label>
+        <input name="ip_address" class="form-control rounded-4" placeholder="مثال: 192.168.1.20" required>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">اسم الطالب</label>
+        <input name="student_name" class="form-control rounded-4">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">رقم الهاتف</label>
+        <input name="phone" class="form-control rounded-4">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">السبب</label>
+        <input name="reason" class="form-control rounded-4" placeholder="اختياري">
+      </div>
+      <div class="col-12">
+        <button class="btn btn-dark rounded-pill px-4">إضافة بلوك</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="row g-4">
+    {% for block in blocks %}
+    <div class="col-12">
+      <div class="order-card">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+          <div>
+            <div class="small text-muted">Block #{{ block.id }}</div>
+            <h4 class="mb-1">{{ block.ip_address }}</h4>
+            <div class="text-muted">
+              {% if block.student_name %}{{ block.student_name }}{% else %}اسم غير معروف{% endif %}
+              {% if block.phone %} • {{ block.phone }}{% endif %}
+              • {{ block.blocked_at.strftime('%Y-%m-%d %H:%M') }}
+            </div>
+          </div>
+          <form method="POST" action="{{ url_for('unblock_user', block_id=block.id) }}" onsubmit="return confirm('إزالة البلوك عن هذا الـ IP؟');">
+            <button class="btn btn-success rounded-pill px-4">إزالة البلوك</button>
+          </form>
+        </div>
+        <div class="note-box mt-3">
+          <strong>السبب:</strong> {{ block.reason or 'لا يوجد سبب' }}
+          {% if block.order_id %}<br><strong>من الطلب:</strong> #{{ block.order_id }}{% endif %}
+          {% if block.blocked_by %}<br><strong>بواسطة:</strong> {{ block.blocked_by }}{% endif %}
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="col-12"><div class="empty-box">لا يوجد أي بلوكات حالياً.</div></div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
