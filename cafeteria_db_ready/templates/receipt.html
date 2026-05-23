@@ -11,10 +11,10 @@
     @media print {.no-print{display:none} body{padding:0}}
   </style>
 </head>
-<body onload="window.print()">
+<body>
   <div class="no-print" style="margin-bottom:16px;text-align:center">
     <button onclick="window.print()">طباعة</button>
-    <a href="{{ url_for('admin_dashboard') }}">رجوع</a>
+    <a href="{{ url_for('admin_dashboard') }}">رجوع للطلبات</a>
   </div>
   <div class="header">
     <img class="logo" src="{{ url_for('media_logo', _external=True) }}" alt="logo">
@@ -35,6 +35,16 @@
   <div class="item" style="font-weight:bold"><span>المجموع</span><span>{{ '%.2f'|format(order.total) }} د.أ</span></div>
   <div class="line"></div>
   <p style="text-align:center">شكراً وبالهناء والشفاء</p>
+
+  <script>
+    const backUrl = "{{ url_for('admin_dashboard') }}";
+    window.addEventListener('load', function () {
+      setTimeout(function () { window.print(); }, 300);
+    });
+    window.addEventListener('afterprint', function () {
+      setTimeout(function () { window.location.href = backUrl; }, 600);
+    });
+  </script>
 </body>
 </html>
 

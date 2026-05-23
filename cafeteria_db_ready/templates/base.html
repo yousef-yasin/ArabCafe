@@ -8,6 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
+{% set show_admin_tools = session.get('admin_id') and request.path.startswith('/adminarabcafeaau123') and request.endpoint != 'admin_login' %}
 <body class="{% if request.endpoint == 'index' %}student-layout{% endif %}">
   <nav class="navbar navbar-expand-lg premium-nav {% if request.endpoint != 'index' %}sticky-top{% endif %}">
     <div class="container nav-shell">
@@ -19,7 +20,7 @@
         </div>
         {% endif %}
       </a>
-      {% if session.get('admin_id') and request.endpoint != 'admin_login' %}
+      {% if show_admin_tools %}
       <div class="d-flex flex-wrap gap-2 ms-auto">
         <a href="{{ url_for('admin_dashboard') }}" class="btn btn-light btn-sm rounded-pill px-3">الطلبات</a>
         <a href="{{ url_for('blocked_users') }}" class="btn btn-danger btn-sm rounded-pill px-3">صفحة البلوكات</a>
@@ -48,7 +49,7 @@
 
 
   <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
-  {% if session.get('admin_id') and request.endpoint != 'admin_login' %}
+  {% if show_admin_tools %}
   <script>
     (function () {
       const ALERTS_KEY = "cafeteria_alerts_enabled";
