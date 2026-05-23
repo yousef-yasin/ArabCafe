@@ -930,6 +930,14 @@ def delete_menu_item(item_id):
 @admin_required
 def print_receipt(order_id):
     order = Order.query.get_or_404(order_id)
+
+    # عند ضغط زر طباعة الفاتورة نعتبر الطلب موافَق/مؤكد عليه مباشرة،
+    # حتى لو كانت الطابعة غير متصلة أو الطباعة الشبكية فشلت.
+    if order.status == 'pending':
+        order.status = 'confirmed'
+        order.confirmed_at = jordan_now()
+        db.session.commit()
+
     if order.receipt_printed_at is None:
         if send_order_to_network_printers(order):
             order.receipt_printed_at = jordan_now()
