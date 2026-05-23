@@ -4,8 +4,8 @@
 <div class="container py-3">
   <div class="dashboard-hero mb-4">
     <div>
-      <h1 class="mb-2">لوحة الكافتيريا</h1>
-      <p class="mb-0 text-white-50">عرض الطلبات، طباعة الفاتورة، أو إلغاء الطلب فقط.</p>
+      <h1 class="mb-2">لوحة الكافتيريا - مبنى {{ admin_building }}</h1>
+      <p class="mb-0 text-white-50">هذه الصفحة تعرض طلبات مبنى {{ admin_building }} فقط.</p>
     </div>
     <div class="d-flex flex-wrap gap-2">
       <a href="{{ url_for('manage_menu') }}" class="btn btn-light rounded-pill px-4">إدارة المنيو</a>
@@ -48,7 +48,7 @@
 
 {% block scripts %}
 <script>
-  const STORAGE_KEY = "cafeteria_seen_order_ids";
+  const STORAGE_KEY = "cafeteria_seen_order_ids_{{ admin_building }}";
   const ALERTS_KEY = "cafeteria_alerts_enabled";
   const DEFAULT_TITLE = document.title;
   const ADMIN_DASHBOARD_URL = "{{ url_for('admin_dashboard') }}";
