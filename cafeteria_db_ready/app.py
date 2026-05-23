@@ -28,6 +28,9 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-change-me')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024
+# Basic session hardening: prevents JavaScript from reading the admin session cookie.
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 db = SQLAlchemy(app)
 
@@ -149,23 +152,46 @@ def admin_required(func_):
     def wrapper(*args, **kwargs):
         if not session.get('admin_id'):
             return redirect(url_for('admin_login'))
-        # لو الجلسة قديمة وما فيها مبنى، نخليه I افتراضياً.
-        if session.get('admin_building') not in {'I', 'B'}:
-            session['admin_building'] = 'I'
         return func_(*args, **kwargs)
     return wrapper
 
 
-def current_admin_building():
-    return session.get('admin_building') if session.get('admin_building') in {'I', 'B'} else 'I'
+def is_admin_area_path(path=None):
+    """True for every page/action that belongs to the admin side."""
+    path = path or request.path
+    admin_root = f'/{ADMIN_SECRET_PATH}'
+    return path == admin_root or path.startswith(admin_root + '/') or path.startswith('/receipt/')
 
 
-def building_orders_query():
-    return Order.query.filter_by(building=current_admin_building())
+@app.before_request
+def protect_admin_pages_globally():
+    """
+    Extra safety layer: even if a new admin route is added later and the
+    @admin_required decorator is forgotten, it will still require login.
+    Only the admin login page itself stays public.
+    """
+    admin_root = f'/{ADMIN_SECRET_PATH}'
+
+    # The login page must stay reachable.
+    if request.path == admin_root:
+        return None
+
+    # Everything under /adminarabcafeaau123/... and every receipt page is admin-only.
+    if is_admin_area_path() and not session.get('admin_id'):
+        flash('لازم تسجل دخول كأدمن أولاً.', 'warning')
+        return redirect(url_for('admin_login'))
+
+    return None
 
 
-def get_order_for_current_building(order_id):
-    return Order.query.filter_by(id=order_id, building=current_admin_building()).first_or_404()
+@app.after_request
+def prevent_admin_page_cache(response):
+    """Prevents back-button/cache access to admin pages after logout."""
+    if is_admin_area_path(request.path):
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
 
 
 def _format_receipt_lines(order):
@@ -486,7 +512,7 @@ def seed_data():
 def admin_orders_partial():
     status_filter = request.args.get("status", "all")
 
-    query = building_orders_query().order_by(Order.created_at.desc())
+    query = Order.query.order_by(Order.created_at.desc())
 
     if status_filter != "all":
         query = query.filter_by(status=status_filter)
@@ -498,14 +524,12 @@ def admin_orders_partial():
 @app.route(f'/{ADMIN_SECRET_PATH}/orders_meta')
 @admin_required
 def admin_orders_meta():
-    query = building_orders_query()
-    latest_order = query.order_by(Order.created_at.desc()).first()
+    latest_order = Order.query.order_by(Order.created_at.desc()).first()
     return jsonify({
         'latest_order_id': latest_order.id if latest_order else 0,
-        'pending_count': building_orders_query().filter_by(status='pending').count(),
-        'confirmed_count': building_orders_query().filter_by(status='confirmed').count(),
-        'ready_count': building_orders_query().filter_by(status='ready').count(),
-        'building': current_admin_building()
+        'pending_count': Order.query.filter_by(status='pending').count(),
+        'confirmed_count': Order.query.filter_by(status='confirmed').count(),
+        'ready_count': Order.query.filter_by(status='ready').count()
     })
 def get_upload_blob(file_storage):
     if not file_storage or not file_storage.filename:
@@ -636,16 +660,11 @@ def admin_login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
-        building = request.form.get('building', '').strip().upper()
-        if building not in {'I', 'B'}:
-            flash('اختاري مبنى I أو B قبل تسجيل الدخول.', 'danger')
-            return render_template('admin_login.html')
         admin = Admin.query.filter_by(username=username).first()
         if admin and check_password_hash(admin.password_hash, password):
             session['admin_id'] = admin.id
             session['admin_username'] = admin.username
-            session['admin_building'] = building
-            flash(f'تم تسجيل الدخول بنجاح لمبنى {building}.', 'success')
+            flash('تم تسجيل الدخول بنجاح.', 'success')
             return redirect(url_for('admin_dashboard'))
         flash('بيانات الدخول غير صحيحة.', 'danger')
     return render_template('admin_login.html')
@@ -662,33 +681,30 @@ def admin_logout():
 @admin_required
 def admin_dashboard():
     status = request.args.get('status')
-    building = current_admin_building()
-    query = building_orders_query().order_by(Order.created_at.desc())
+    query = Order.query.order_by(Order.created_at.desc())
     if status:
         query = query.filter_by(status=status)
     orders = query.all()
-    stats_query = building_orders_query()
     stats = {
-        'pending': building_orders_query().filter_by(status='pending').count(),
-        'confirmed': building_orders_query().filter_by(status='confirmed').count(),
-        'ready': building_orders_query().filter_by(status='ready').count(),
-        'cancelled': building_orders_query().filter_by(status='cancelled').count(),
-        'total_orders': stats_query.count(),
+        'pending': Order.query.filter_by(status='pending').count(),
+        'confirmed': Order.query.filter_by(status='confirmed').count(),
+        'ready': Order.query.filter_by(status='ready').count(),
+        'cancelled': Order.query.filter_by(status='cancelled').count(),
+        'total_orders': Order.query.count(),
         'blocked_users': BlockedUser.query.count(),
         'sales_today': round(
             db.session.query(func.coalesce(func.sum(Order.total), 0.0))
-            .filter(Order.building == building)
             .filter(func.date(Order.created_at) == jordan_now().date().isoformat())
             .scalar() or 0.0, 2
         )
     }
-    return render_template('admin_dashboard.html', orders=orders, stats=stats, active_status=status, admin_building=building)
+    return render_template('admin_dashboard.html', orders=orders, stats=stats, active_status=status)
 
 
 @app.route(f'/{ADMIN_SECRET_PATH}/reports')
 @admin_required
 def reports():
-    daily_orders = building_orders_query().filter(Order.status != 'cancelled').order_by(Order.created_at.desc()).all()
+    daily_orders = Order.query.filter(Order.status != 'cancelled').order_by(Order.created_at.desc()).all()
     grouped = defaultdict(list)
     for order in daily_orders:
         day = order.created_at.strftime('%Y-%m-%d')
@@ -711,7 +727,7 @@ def reports():
 @app.route(f'/{ADMIN_SECRET_PATH}/order/<int:order_id>/confirm', methods=['POST'])
 @admin_required
 def confirm_order(order_id):
-    order = get_order_for_current_building(order_id)
+    order = Order.query.get_or_404(order_id)
     order.status = 'confirmed'
     order.confirmed_at = jordan_now()
     db.session.commit()
@@ -721,7 +737,7 @@ def confirm_order(order_id):
 @app.route(f'/{ADMIN_SECRET_PATH}/order/<int:order_id>/ready', methods=['POST'])
 @admin_required
 def ready_order(order_id):
-    order = get_order_for_current_building(order_id)
+    order = Order.query.get_or_404(order_id)
     order.status = 'ready'
     order.ready_at = jordan_now()
     db.session.commit()
@@ -732,7 +748,7 @@ def ready_order(order_id):
 @app.route(f'/{ADMIN_SECRET_PATH}/order/<int:order_id>/cancel', methods=['POST'])
 @admin_required
 def cancel_order(order_id):
-    order = get_order_for_current_building(order_id)
+    order = Order.query.get_or_404(order_id)
     order.status = 'cancelled'
     db.session.commit()
     flash(f'تم إلغاء الطلب رقم #{order.id}', 'warning')
@@ -742,9 +758,8 @@ def cancel_order(order_id):
 @app.route(f'/{ADMIN_SECRET_PATH}/orders/delete-all', methods=['POST'])
 @admin_required
 def delete_all_orders():
-    order_ids = [order.id for order in building_orders_query().all()]
-    deleted_items = OrderItem.query.filter(OrderItem.order_id.in_(order_ids)).delete(synchronize_session=False) if order_ids else 0
-    deleted_orders = Order.query.filter(Order.id.in_(order_ids)).delete(synchronize_session=False) if order_ids else 0
+    deleted_items = OrderItem.query.delete()
+    deleted_orders = Order.query.delete()
     db.session.commit()
     flash(f'تم حذف جميع الطلبات ({deleted_orders}) وكل العناصر التابعة إلها ({deleted_items}).', 'warning')
     return redirect(url_for('admin_dashboard'))
@@ -760,7 +775,7 @@ def blocked_users():
 @app.route(f'/{ADMIN_SECRET_PATH}/order/<int:order_id>/block', methods=['POST'])
 @admin_required
 def block_order_user(order_id):
-    order = get_order_for_current_building(order_id)
+    order = Order.query.get_or_404(order_id)
     ip_address = normalize_ip(order.customer_ip or request.form.get('ip_address', ''))
     reason = request.form.get('reason', '').strip()
 
@@ -955,7 +970,7 @@ def delete_menu_item(item_id):
 @app.route('/receipt/<int:order_id>')
 @admin_required
 def print_receipt(order_id):
-    order = get_order_for_current_building(order_id)
+    order = Order.query.get_or_404(order_id)
 
     # عند ضغط زر طباعة الفاتورة نعتبر الطلب موافَق/مؤكد عليه مباشرة،
     # حتى لو كانت الطابعة غير متصلة أو الطباعة الشبكية فشلت.
