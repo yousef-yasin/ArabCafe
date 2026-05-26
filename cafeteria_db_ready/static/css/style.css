@@ -880,3 +880,276 @@ body{
 }
 .nav-link-custom{color:#4a2c1a;}
 .nav-link-custom:hover{color:#c96f2d;opacity:1;}
+
+/* Admin login page redesign */
+.admin-login-body{
+  min-height:100vh;
+  background:#fff8ec;
+}
+.admin-login-body .premium-nav,
+.admin-login-body main > .container.pt-3:empty{
+  display:none;
+}
+.admin-login-body main{
+  padding-bottom:0!important;
+}
+.admin-login-screen{
+  min-height:100vh;
+  position:relative;
+  overflow:hidden;
+  direction:ltr;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(255,171,64,.32), transparent 20rem),
+    radial-gradient(circle at 90% 85%, rgba(201,111,45,.16), transparent 22rem),
+    linear-gradient(135deg,#ffb33e 0%, #ffc15a 35%, #fffaf3 35.2%, #fffaf3 100%);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:34px 18px;
+}
+.admin-login-wrap{
+  width:min(1120px,100%);
+  min-height:660px;
+  border-radius:34px;
+  overflow:hidden;
+  background:rgba(255,253,249,.78);
+  box-shadow:0 28px 70px rgba(74,44,26,.18);
+  border:1px solid rgba(255,255,255,.7);
+  display:grid;
+  grid-template-columns:1fr 1.18fr;
+  position:relative;
+}
+.admin-login-visual{
+  position:relative;
+  overflow:hidden;
+  background:
+    radial-gradient(circle at 70% 48%, rgba(255,255,255,.82) 0 20%, transparent 20.4%),
+    linear-gradient(135deg,#ffb33e 0%, #ffb33e 58%, #fff8ec 58.2%, #fff8ec 100%);
+  min-height:660px;
+}
+.admin-login-visual:before{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:
+    linear-gradient(90deg, rgba(0,0,0,.22), transparent 42%),
+    repeating-linear-gradient(135deg, rgba(255,255,255,.08) 0 1px, transparent 1px 16px);
+  opacity:.72;
+}
+.visual-overlay{
+  position:absolute;
+  inset:auto -26% -16% -20%;
+  height:52%;
+  background:rgba(255,255,255,.52);
+  border-radius:60% 0 0 30%;
+  transform:rotate(-8deg);
+}
+.brand-badge{
+  position:absolute;
+  top:34px;
+  left:34px;
+  right:34px;
+  z-index:2;
+  display:flex;
+  align-items:center;
+  gap:14px;
+  color:#fffaf3;
+  direction:ltr;
+}
+.brand-badge img{
+  width:58px;
+  height:58px;
+  border-radius:50%;
+  border:2px solid rgba(255,255,255,.55);
+  box-shadow:0 10px 28px rgba(0,0,0,.25);
+  object-fit:cover;
+}
+.brand-badge strong{
+  display:block;
+  font-weight:900;
+  letter-spacing:1px;
+  font-size:1.15rem;
+}
+.brand-badge span{
+  display:block;
+  color:rgba(255,250,243,.75);
+  font-weight:700;
+}
+.food-photo-column{
+  position:absolute;
+  z-index:2;
+  top:0;
+  bottom:0;
+  left:0;
+  width:52%;
+  background:rgba(24,18,14,.48);
+  display:flex;
+  align-items:flex-start;
+  justify-content:center;
+  overflow:hidden;
+  box-shadow:18px 0 35px rgba(0,0,0,.16);
+}
+.admin-food-photo{
+  position:absolute;
+  width:112%;
+  height:auto;
+  object-fit:contain;
+  filter:drop-shadow(0 18px 28px rgba(0,0,0,.28));
+}
+.admin-food-photo-main{
+  top:118px;
+  left:-28px;
+}
+.admin-food-photo-secondary{
+  width:78%;
+  bottom:60px;
+  left:26px;
+  opacity:.92;
+  transform:rotate(-7deg);
+}
+.leaf-outline{
+  position:absolute;
+  right:-70px;
+  top:104px;
+  width:290px;
+  height:390px;
+  border:5px solid rgba(255,255,255,.28);
+  border-radius:70% 15% 70% 20%;
+  transform:rotate(28deg);
+  z-index:1;
+}
+.admin-login-form-side{
+  min-height:660px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:52px;
+  direction:rtl;
+  background:
+    radial-gradient(circle at 88% 18%, rgba(201,111,45,.08), transparent 18rem),
+    rgba(255,253,249,.84);
+}
+.login-card.admin-login-card{
+  width:min(460px,100%);
+  max-width:460px;
+  background:transparent;
+  border:none;
+  box-shadow:none;
+  padding:0;
+}
+.admin-login-logo{
+  width:96px;
+  height:96px;
+  box-shadow:0 10px 26px rgba(74,44,26,.16);
+  border:3px solid #fff;
+}
+.admin-login-card h2{
+  font-size:2rem;
+  font-weight:900;
+  color:#2b1a12;
+}
+.admin-login-form .form-label{
+  font-weight:800;
+  color:#4a2c1a;
+  margin-inline-start:16px;
+}
+.admin-login-form .form-control,
+.admin-login-form .form-select{
+  min-height:54px;
+  border:0;
+  background:#f1f1f1;
+  color:#2b1a12;
+  padding-inline:22px;
+  box-shadow:inset 0 0 0 1px rgba(234,216,196,.48);
+}
+.admin-login-form .form-control:focus,
+.admin-login-form .form-select:focus{
+  background:#fff;
+  box-shadow:0 0 0 .22rem rgba(125,190,83,.18), inset 0 0 0 1px #83c65a;
+  border-color:#83c65a;
+}
+.admin-login-btn{
+  background:#80c857!important;
+  border-color:#80c857!important;
+  box-shadow:0 12px 22px rgba(76,145,41,.22);
+}
+.admin-login-btn:hover{
+  background:#69af43!important;
+  border-color:#69af43!important;
+}
+.admin-login-deco{
+  position:absolute;
+  z-index:0;
+  color:#2b1a12;
+  opacity:.75;
+  font-size:34px;
+  font-weight:900;
+}
+.deco-one{top:10%;right:18%;transform:rotate(16deg)}
+.deco-two{bottom:16%;right:8%;transform:rotate(-18deg)}
+.deco-three{top:18%;left:8%;transform:rotate(-22deg)}
+
+@media (max-width: 900px){
+  .admin-login-wrap{grid-template-columns:1fr;min-height:auto;}
+  .admin-login-visual{min-height:250px;}
+  .food-photo-column{width:48%;}
+  .admin-food-photo-main{top:28px;left:-22px;width:105%;}
+  .admin-food-photo-secondary{display:none;}
+  .admin-login-form-side{min-height:auto;padding:34px 22px;}
+}
+@media (max-width: 520px){
+  .admin-login-screen{padding:0;background:#fffaf3;}
+  .admin-login-wrap{border-radius:0;min-height:100vh;}
+  .admin-login-visual{min-height:190px;}
+  .brand-badge{top:22px;left:22px;right:22px;}
+  .food-photo-column{display:none;}
+  .admin-login-card h2{font-size:1.65rem;}
+}
+
+
+/* Admin login requested real-salad tweaks */
+.admin-login-visual .brand-badge{display:none!important;}
+.food-photo-column{
+  width:54%;
+  overflow:visible;
+  background:linear-gradient(180deg, rgba(35,24,16,.44), rgba(35,24,16,.30));
+}
+.admin-food-photo-main{
+  width:122%;
+  top:95px;
+  left:24px;
+  z-index:4;
+  transform:translateX(18%);
+  filter:drop-shadow(0 22px 30px rgba(0,0,0,.30));
+}
+.admin-food-photo-secondary{
+  width:78%;
+  bottom:64px;
+  left:54px;
+  z-index:3;
+  opacity:.98;
+  transform:rotate(-4deg) translateX(8%);
+  filter:drop-shadow(0 18px 25px rgba(0,0,0,.24));
+}
+.admin-login-form input[name="username"]::placeholder{
+  color:#8d7d70;
+  opacity:1;
+}
+.admin-login-form input[name="username"]{
+  font-weight:700;
+}
+
+@media (max-width: 900px){
+  .food-photo-column{width:58%;overflow:visible;}
+  .admin-food-photo-main{top:28px;left:22px;width:78%;transform:translateX(24%);}
+  .admin-food-photo-secondary{display:block;width:46%;bottom:18px;left:42px;transform:rotate(-3deg) translateX(8%);}
+}
+@media (max-width: 520px){
+  .admin-login-visual{min-height:170px!important;display:block;}
+  .food-photo-column{display:block;width:100%;height:100%;background:linear-gradient(135deg,#ffb33e,#fff3d8);}
+  .admin-food-photo-main{width:54%;top:18px;left:50%;transform:translateX(-50%);}
+  .admin-food-photo-secondary{display:none;}
+  .admin-login-form-side{padding:28px 18px!important;}
+  .admin-login-form .form-control,
+  .admin-login-form .form-select{min-height:50px;}
+}
