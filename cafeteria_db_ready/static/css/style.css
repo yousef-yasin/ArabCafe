@@ -1153,3 +1153,174 @@ body{
   .admin-login-form .form-control,
   .admin-login-form .form-select{min-height:50px;}
 }
+
+/* Admin dashboard visual refresh - keeps all logic/routes unchanged */
+.admin-dashboard-shell{
+  max-width: 1540px;
+  margin: 0 auto;
+}
+.admin-dashboard-topbar{
+  background: rgba(255,253,249,.96);
+  border: 1px solid #ead8c4;
+  border-radius: 22px 22px 0 0;
+  padding: 20px 24px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  box-shadow:0 12px 28px rgba(74,44,26,.06);
+}
+.admin-dashboard-brand .brand-title-ar{
+  color:#4a2c1a;
+  font-size:1.35rem;
+  font-weight:900;
+  line-height:1.1;
+}
+.admin-dashboard-brand small{
+  color:#8a705b;
+  font-weight:700;
+}
+.brand-cup{
+  font-size:2.45rem;
+  color:#c96f2d;
+  line-height:1;
+}
+.admin-food-hero.dashboard-hero{
+  min-height: 345px;
+  border-radius: 0 0 30px 30px;
+  padding: 48px 6vw;
+  overflow:hidden;
+  position:relative;
+  background:
+    linear-gradient(90deg, rgba(255,250,243,.98) 0%, rgba(255,247,235,.92) 48%, rgba(255,237,204,.58) 100%),
+    radial-gradient(circle at 72% 28%, rgba(201,111,45,.16), transparent 32%),
+    #fff8ef;
+  border:1px solid #ead8c4;
+  box-shadow:0 18px 42px rgba(74,44,26,.10);
+  color:#4a2c1a;
+}
+.admin-food-hero:before,
+.admin-food-hero:after{
+  content:"";
+  position:absolute;
+  border:2px solid rgba(201,111,45,.08);
+  border-radius:50%;
+  pointer-events:none;
+}
+.admin-food-hero:before{width:360px;height:360px;right:41%;top:-120px;}
+.admin-food-hero:after{width:190px;height:190px;left:18%;bottom:-80px;}
+.hero-copy{
+  position:relative;
+  z-index:2;
+  max-width:520px;
+}
+.hero-copy h1{
+  color:#4a2c1a;
+  font-weight:900;
+  font-size:clamp(2rem, 4vw, 3rem);
+  line-height:1.35;
+}
+.hero-copy p{
+  color:#5f422d;
+  font-size:1.25rem;
+  font-weight:700;
+  line-height:1.9;
+}
+.hero-food-wrap{
+  position:absolute;
+  left: 2.5vw;
+  bottom: -6px;
+  width: min(47vw, 620px);
+  z-index:1;
+  filter: drop-shadow(0 25px 30px rgba(74,44,26,.20));
+}
+.hero-food-img{
+  width:100%;
+  height:auto;
+  display:block;
+}
+.admin-stats-row .admin-stat{
+  min-height:136px;
+  border-radius:20px;
+  padding:22px 20px;
+  display:flex;
+  flex-direction:row-reverse;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+}
+.admin-stat .stat-icon{
+  width:48px;
+  height:48px;
+  border-radius:50%;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  background:#fff3e6;
+  border:1px solid #f0dcc8;
+  color:#5d351f;
+  font-size:1.45rem;
+  font-weight:900;
+  flex:0 0 auto;
+}
+.admin-stat span:not(.stat-icon){
+  color:#8a705b;
+  font-size:1rem;
+}
+.admin-stat strong{
+  color:#4a2c1a;
+  font-size:1.9rem;
+}
+.admin-soft-alert{
+  border-radius:20px;
+  border-color:#ead8c4;
+  background:#fff8ef;
+  color:#5f422d;
+}
+.admin-dashboard-shell .filter-bar{
+  background:#fffdf9;
+  border:1px solid #ead8c4;
+  border-radius:22px;
+  padding:18px;
+  justify-content:flex-start;
+  box-shadow:0 12px 28px rgba(74,44,26,.06);
+}
+
+@media (max-width: 991.98px){
+  .admin-dashboard-topbar{
+    flex-direction:column-reverse;
+    align-items:stretch;
+    border-radius:22px;
+  }
+  .admin-dashboard-topbar .d-flex{
+    justify-content:center;
+  }
+  .admin-dashboard-brand{text-align:center!important;}
+  .admin-dashboard-brand .d-flex{justify-content:center!important;}
+  .admin-food-hero.dashboard-hero{
+    border-radius:24px;
+    min-height:auto;
+    padding:34px 22px 260px;
+    text-align:center;
+  }
+  .hero-copy{margin:0 auto;}
+  .hero-copy p{font-size:1rem;}
+  .hero-food-wrap{
+    width:min(92vw, 430px);
+    left:50%;
+    transform:translateX(-50%);
+    bottom:-8px;
+  }
+}
+@media (max-width: 575.98px){
+  .admin-dashboard-shell{padding-left:10px!important;padding-right:10px!important;}
+  .admin-dashboard-topbar{padding:14px;}
+  .admin-dashboard-topbar .btn,
+  .admin-dashboard-topbar form{width:100%;}
+  .admin-dashboard-topbar form .btn{width:100%;}
+  .admin-food-hero.dashboard-hero{padding:28px 18px 220px;}
+  .hero-copy h1{font-size:1.7rem;}
+  .admin-stats-row .admin-stat{min-height:112px;padding:16px 14px;}
+  .admin-stat .stat-icon{width:40px;height:40px;font-size:1.15rem;}
+  .admin-stat strong{font-size:1.45rem;}
+}
