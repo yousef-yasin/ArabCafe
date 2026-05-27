@@ -1596,3 +1596,33 @@ body.student-layout .student-app-menu .cart-floating-btn{
   -webkit-text-fill-color:#4a2c1a;
   transition: background-color 9999s ease-in-out 0s;
 }
+
+/* FINAL CART BUTTON FIX: always float with viewport on student menu */
+.student-app-menu .in-page-cart,
+body .student-app-menu .in-page-cart,
+body.student-layout .student-app-menu .in-page-cart{
+  position: fixed !important;
+  top: auto !important;
+  bottom: 24px !important;
+  left: 24px !important;
+  right: auto !important;
+  z-index: 9999 !important;
+  margin: 0 !important;
+  width: auto !important;
+  transform: none !important;
+}
+.student-app-menu .cart-floating-btn{
+  min-width: 152px !important;
+}
+@media (max-width: 767.98px){
+  .student-app-menu .in-page-cart,
+  body .student-app-menu .in-page-cart,
+  body.student-layout .student-app-menu .in-page-cart{
+    left: 14px !important;
+    bottom: calc(16px + env(safe-area-inset-bottom)) !important;
+  }
+  .student-app-menu .cart-floating-btn{
+    min-width: 124px !important;
+    padding: 10px 14px !important;
+  }
+}
