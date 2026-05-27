@@ -13,3 +13,22 @@
 .menu-title-box p {
     margin-top: 2px !important;
 }
+
+
+/* Floating cart follows scroll */
+.cart-floating,
+.cart-floating-wrap{
+    position: fixed !important;
+    top: 18px !important;
+    left: 25px !important;
+    z-index: 99999 !important;
+}
+
+@media(max-width:768px){
+    .cart-floating,
+    .cart-floating-wrap{
+        top: 10px !important;
+        left: 10px !important;
+        transform: scale(.9);
+    }
+}
