@@ -1566,12 +1566,14 @@ body{
 }
 
 
-/* Fixes requested: keep cart button following scroll + stop browser prefilling admin login */
+/* Fixes requested: keep cart button visible while scrolling + stop browser prefilling admin login */
 body.student-layout .student-app-menu .in-page-cart{
   position: fixed !important;
-  top: 132px;
+  top: auto !important;
   left: clamp(18px, 4vw, 64px);
-  z-index: 1050;
+  right: auto;
+  bottom: 22px;
+  z-index: 1035;
   margin: 0 !important;
 }
 body.student-layout .student-app-menu .cart-floating-btn{
@@ -1580,11 +1582,8 @@ body.student-layout .student-app-menu .cart-floating-btn{
 }
 @media (max-width: 767.98px){
   body.student-layout .student-app-menu .in-page-cart{
-    top: auto;
     left: 16px;
-    right: auto;
-    bottom: 18px;
-    z-index: 1100;
+    bottom: calc(18px + env(safe-area-inset-bottom));
   }
   body.student-layout .student-app-menu .cart-floating-btn{
     min-width: 128px;
