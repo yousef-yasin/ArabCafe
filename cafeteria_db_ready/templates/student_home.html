@@ -1,33 +1,23 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="container mt-4 student-page">
-  <div class="menu-header mb-3">
-    <div>
-      <h1 class="menu-page-title mb-1">المنيو</h1>
-      <p class="menu-page-subtitle mb-0">اختر القسم ثم أضف الطلبات بسهولة.</p>
-    </div>
-    <div class="menu-header-badge">{{ categories|length }} أقسام</div>
-  </div>
+<section class="container-fluid px-3 px-lg-5 mt-4 student-page student-app-menu">
+  <div class="student-menu-top mb-4">
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+      <div class="cart-floating-wrap in-page-cart">
+        <button type="button" class="cart-floating-btn" id="cart-float-btn">
+          <span class="cart-floating-count" id="cart-count">0</span>
+          <span>السلة</span>
+          <span class="cart-floating-icon">🛒</span>
+        </button>
+      </div>
 
-  <div class="cart-floating-wrap">
-    <button type="button" class="cart-floating-btn" id="cart-float-btn">
-      <span class="cart-floating-icon">🛒</span>
-      <span>السلة</span>
-      <span class="cart-floating-count" id="cart-count">0</span>
-    </button>
-    <div class="cart-added-toast" id="cart-added-toast">
-      <span class="cart-floating-icon">🛒</span>
-      <span id="cart-toast-text">تمت إضافة المنتج إلى السلة</span>
+      <div class="text-end ms-auto">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="Arab Cafe" class="student-mini-logo mb-2" onerror="this.style.display='none'">
+        <h1 class="menu-page-title mb-1">المنيو</h1>
+        <p class="menu-page-subtitle mb-0">اختر القسم ثم أضف الطلبات بسهولة.</p>
+      </div>
     </div>
   </div>
-
-  {% if featured_items %}
-  <div class="featured-strip mb-4">
-    {% for item in featured_items[:8] %}
-      <div class="featured-pill">{{ item.name }} • {{ '%.2f'|format(item.price) }} د.أ</div>
-    {% endfor %}
-  </div>
-  {% endif %}
 
   <div class="category-tabs-wrap mb-4">
     <div class="category-tabs" id="categoryTabs">
@@ -39,51 +29,43 @@
     </div>
   </div>
 
-  <div class="row g-4 align-items-start">
-    <div class="col-12">
-      {% for category in categories %}
-      <section class="menu-category-panel {% if loop.first %}active{% endif %}" id="category-{{ category.id }}">
-        <div class="section-heading mb-3">
-          <h2 class="section-title mb-1">{{ category.name }}</h2>
-          <div class="text-muted small">{{ category.items|selectattr('available')|list|length }} صنف متاح</div>
+  <div class="menu-sections-stack">
+    {% for category in categories %}
+    <section class="menu-category-row" id="category-{{ category.id }}">
+      <div class="category-row-head">
+        <div class="d-flex align-items-center gap-2">
+          <span class="category-row-icon">{% if 'قهوة' in category.name or 'كوفي' in category.name %}☕{% elif 'باردة' in category.name or 'مثلج' in category.name %}🥤{% elif 'شاي' in category.name %}🧋{% elif 'حلو' in category.name %}🧁{% elif 'سلط' in category.name %}🥗{% elif 'بيتزا' in category.name %}🍕{% else %}🍽️{% endif %}</span>
+          <h2 class="section-title mb-0">{{ category.name }}</h2>
         </div>
+        <a href="#category-{{ category.id }}" class="see-all-link">عرض الكل ←</a>
+      </div>
 
-        <div class="row g-3">
-          {% for item in category.items if item.available %}
-          <div class="col-md-6 col-xl-4 col-12">
-            <div class="item-card h-100 {% if not category.show_image %}no-image-card{% endif %}">
-              {% if category.show_image and item.image_data %}
-                <img src="{{ url_for('menu_item_image', item_id=item.id) }}" alt="{{ item.name }}" class="item-image">
-              {% endif %}
+      <div class="products-horizontal-scroll">
+        {% for item in category.items if item.available %}
+        <article class="mini-product-card {% if not category.show_image %}mini-no-image{% endif %}">
+          {% if category.show_image and item.image_data %}
+            <img src="{{ url_for('menu_item_image', item_id=item.id) }}" alt="{{ item.name }}" class="mini-product-img">
+          {% else %}
+            <div class="mini-product-placeholder">{{ item.name[:1] }}</div>
+          {% endif %}
 
-              <div class="p-3 d-flex flex-column h-100">
-                <div class="d-flex justify-content-between gap-3 mb-3 align-items-start product-head">
-                  <div>
-                    <h5 class="mb-1">{{ item.name }}</h5>
-                    {% if item.description %}
-                    <p class="text-muted small mb-0">{{ item.description }}</p>
-                    {% endif %}
-                  </div>
-                  <span class="price-tag">{{ '%.2f'|format(item.price) }} د.أ</span>
-                </div>
-
-                <div class="mt-auto">
-                  <button class="btn btn-dark w-100 rounded-pill add-to-cart" data-id="{{ item.id }}" data-name="{{ item.name }}" data-price="{{ item.price }}">
-                    أضف للسلة
-                  </button>
-                </div>
-              </div>
+          <div class="mini-product-body">
+            <h3 class="mini-product-title">{{ item.name }}</h3>
+            {% if item.description %}
+            <p class="mini-product-desc">{{ item.description }}</p>
+            {% endif %}
+            <div class="mini-product-footer">
+              <strong class="mini-price">{{ '%.2f'|format(item.price) }} د.أ</strong>
+              <button class="mini-add-btn add-to-cart" data-id="{{ item.id }}" data-name="{{ item.name }}" data-price="{{ item.price }}" type="button">+</button>
             </div>
           </div>
-          {% else %}
-          <div class="col-12">
-            <div class="empty-box">لا يوجد أصناف متاحة حاليًا في هذا القسم.</div>
-          </div>
-          {% endfor %}
-        </div>
-      </section>
-      {% endfor %}
-    </div>
+        </article>
+        {% else %}
+        <div class="empty-mini-row">لا يوجد أصناف متاحة حاليًا في هذا القسم.</div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endfor %}
   </div>
 </section>
 
@@ -145,23 +127,33 @@
 <script>
   document.addEventListener('DOMContentLoaded', function () {
     const tabButtons = document.querySelectorAll('.category-tab-btn');
-    const panels = document.querySelectorAll('.menu-category-panel');
+    const sections = document.querySelectorAll('.menu-category-row');
 
     tabButtons.forEach((button) => {
       button.addEventListener('click', function () {
         const targetId = this.getAttribute('data-target');
         tabButtons.forEach((btn) => btn.classList.remove('active'));
-        panels.forEach((panel) => panel.classList.remove('active'));
         this.classList.add('active');
-        const targetPanel = document.getElementById(targetId);
-        if (targetPanel) {
-          targetPanel.classList.add('active');
-          if (window.innerWidth < 992) {
-            window.scrollTo({ top: targetPanel.offsetTop - 120, behavior: 'smooth' });
-          }
+        const targetSection = document.getElementById(targetId);
+        if (targetSection) {
+          window.scrollTo({ top: targetSection.offsetTop - 130, behavior: 'smooth' });
         }
       });
     });
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const activeBtn = document.querySelector(`.category-tab-btn[data-target="${entry.target.id}"]`);
+          if (activeBtn) {
+            tabButtons.forEach((btn) => btn.classList.remove('active'));
+            activeBtn.classList.add('active');
+          }
+        }
+      });
+    }, { rootMargin: '-35% 0px -55% 0px', threshold: 0 });
+
+    sections.forEach((section) => observer.observe(section));
   });
 </script>
 {% endblock %}
