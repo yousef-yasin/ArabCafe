@@ -75,7 +75,7 @@ body{
 }
 
 .student-page{
-  padding-top:12px;
+  padding-top:4px;
 }
 
 .menu-header{
@@ -1563,4 +1563,58 @@ body{
   .mini-product-card{flex-basis:146px;width:146px;}
   .mini-product-img,.mini-product-placeholder{height:108px;}
   .student-app-menu .cart-floating-btn{min-width:136px;}
+}
+
+
+/* Fixes requested: keep cart button following scroll + stop browser prefilling admin login */
+body.student-layout .student-app-menu .in-page-cart{
+  position: fixed !important;
+  top: 132px;
+  left: clamp(18px, 4vw, 64px);
+  z-index: 1050;
+  margin: 0 !important;
+}
+body.student-layout .student-app-menu .cart-floating-btn{
+  min-width: 152px;
+  box-shadow: 0 18px 36px rgba(201,111,45,.28);
+}
+@media (max-width: 767.98px){
+  body.student-layout .student-app-menu .in-page-cart{
+    top: auto;
+    left: 16px;
+    right: auto;
+    bottom: 18px;
+    z-index: 1100;
+  }
+  body.student-layout .student-app-menu .cart-floating-btn{
+    min-width: 128px;
+    padding: 10px 14px;
+  }
+}
+.admin-login-form input:-webkit-autofill,
+.admin-login-form input:-webkit-autofill:hover,
+.admin-login-form input:-webkit-autofill:focus{
+  -webkit-text-fill-color:#4a2c1a;
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+
+.student-menu-top{
+  margin-bottom:14px !important;
+}
+
+.menu-page-title{
+  font-size:4rem;
+  line-height:1;
+  margin-bottom:4px;
+}
+
+.category-tabs-wrap{
+  margin-bottom:18px !important;
+}
+
+.cart-floating-wrap{
+  position:sticky;
+  top:12px;
+  z-index:999;
 }
