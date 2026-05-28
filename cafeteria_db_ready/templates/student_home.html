@@ -23,8 +23,8 @@
       <div class="student-product-row">
         {% for item in category.items if item.available %}
         <article class="student-product-card">
-          {% if category.show_image and item.image_data %}
-            <img src="{{ url_for('menu_item_image', item_id=item.id) }}" alt="{{ item.name }}" class="student-product-img">
+          {% if category.show_image and menu_item_has_image(item) %}
+            <img src="{{ menu_item_image_src(item) }}" alt="{{ item.name }}" class="student-product-img" loading="lazy" decoding="async">
           {% else %}
             <div class="student-product-placeholder">{{ item.name[:1] }}</div>
           {% endif %}

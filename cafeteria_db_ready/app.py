@@ -7,12 +7,20 @@ import json
 import logging
 import mimetypes
 import os
+import re
+import uuid
 
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_file, abort, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, inspect, text
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+
+try:
+    from PIL import Image, ImageOps
+except Exception:
+    Image = None
+    ImageOps = None
 
 try:
     from escpos.printer import Network
@@ -22,32 +30,31 @@ except Exception:
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'cafeteria.db')
 SEED_DIR = os.path.join(BASE_DIR, 'seed')
+UPLOAD_MENU_DIR = os.path.join(BASE_DIR, 'static', 'uploads', 'menu')
+UPLOAD_MENU_URL_PREFIX = 'uploads/menu'
 
 
-def load_local_env():
-    """Load .env values locally without overriding Render/real environment variables."""
+def load_local_env_file():
+    """Load .env values locally without requiring extra packages."""
     env_path = os.path.join(BASE_DIR, '.env')
     if not os.path.exists(env_path):
         return
-    with open(env_path, 'r', encoding='utf-8') as env_file:
-        for raw_line in env_file:
-            line = raw_line.strip()
-            if not line or line.startswith('#') or '=' not in line:
-                continue
-            key, value = line.split('=', 1)
-            key = key.strip()
-            value = value.strip().strip('\"').strip("'")
-            if key and key not in os.environ:
-                os.environ[key] = value
+    try:
+        with open(env_path, 'r', encoding='utf-8') as env_file:
+            for raw_line in env_file:
+                line = raw_line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception as exc:
+        logging.warning('Could not load .env file: %s', exc)
 
 
-def get_int_env(name, default):
-    raw_value = os.getenv(name, str(default)).strip()
-    digits = ''.join(ch for ch in raw_value if ch.isdigit())
-    return int(digits) if digits else default
-
-
-load_local_env()
+load_local_env_file()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-change-me')
@@ -68,7 +75,7 @@ PRINTER_IPS = [
     for ip in os.getenv('PRINTER_IPS', '192.168.1.100,192.168.1.50').split(',')
     if ip.strip()
 ]
-PRINTER_PORT = get_int_env('PRINTER_PORT', 9100)
+PRINTER_PORT = int(os.getenv('PRINTER_PORT', '9100'))
 
 
 def jordan_now():
@@ -493,22 +500,17 @@ def seed_site_asset(key, seed_filename):
 
 
 def seed_data():
-    admin_username = (os.getenv('ADMIN_USERNAME') or 'admin').strip()
-    admin_password = (os.getenv('ADMIN_PASSWORD') or 'admin123').strip()
+    if not Admin.query.first():
+        admin_username = os.getenv('ADMIN_USERNAME')
+        admin_password = os.getenv('ADMIN_PASSWORD')
 
-    # Make the admin login always match the values saved in .env / Render Environment.
-    # If the admin is missing, create it. If it already exists, update its password.
-    if admin_username and admin_password:
-        admin = Admin.query.filter_by(username=admin_username).first()
-        if not admin:
-            admin = Admin(username=admin_username)
-            db.session.add(admin)
-        admin.password_hash = generate_password_hash(admin_password)
-
-        # If there is an old default admin account, keep it synced too.
-        default_admin = Admin.query.filter_by(username='admin').first()
-        if default_admin and default_admin.id != admin.id and admin_username == 'admin':
-            default_admin.password_hash = generate_password_hash(admin_password)
+        if admin_username and admin_password:
+            db.session.add(
+                Admin(
+                    username=admin_username,
+                    password_hash=generate_password_hash(admin_password)
+                )
+            )
     seed_site_asset('logo', 'logo.png')
     seed_site_asset('menu_board', 'menu-board.png')
 
@@ -522,10 +524,11 @@ def seed_data():
             )
             db.session.add(category)
             db.session.flush()
-            img_bytes, img_mime, img_filename = (None, None, None)
+            img_filename = None
             image_file = CATEGORY_IMAGE_FILES.get(cat_data['name'])
             if image_file:
-                img_bytes, img_mime, img_filename = read_seed_file(image_file)
+                img_bytes, img_mime, original_filename = read_seed_file(image_file)
+                img_filename = _save_image_bytes_as_webp(img_bytes, original_filename) if img_bytes else None
 
             for idx, item in enumerate(cat_data['items']):
                 name, price = item[0], item[1]
@@ -537,21 +540,24 @@ def seed_data():
                     featured=idx < 3,
                     category_id=category.id,
                     available=True,
-                    image_data=img_bytes if cat_data['show_image'] else None,
-                    image_mime_type=img_mime if cat_data['show_image'] else None,
+                    image_data=None,
+                    image_mime_type='image/webp' if (cat_data['show_image'] and img_filename) else None,
                     image_filename=img_filename if cat_data['show_image'] else None,
                 ))
     else:
-        # Backfill old databases so images become stored in DB.
-        for item in MenuItem.query.filter((MenuItem.image_data.is_(None)) & (MenuItem.category_id.is_not(None))).all():
+        # Backfill old databases so category images become optimized files, not DB blobs.
+        for item in MenuItem.query.filter((MenuItem.image_filename.is_(None)) & (MenuItem.image_data.is_(None)) & (MenuItem.category_id.is_not(None))).all():
             image_file = CATEGORY_IMAGE_FILES.get(item.category.name)
             if image_file and item.category.show_image:
-                img_bytes, img_mime, img_filename = read_seed_file(image_file)
-                item.image_data = img_bytes
-                item.image_mime_type = img_mime
-                item.image_filename = img_filename
+                img_bytes, img_mime, original_filename = read_seed_file(image_file)
+                saved_filename = _save_image_bytes_as_webp(img_bytes, original_filename) if img_bytes else None
+                if saved_filename:
+                    item.image_data = None
+                    item.image_mime_type = 'image/webp'
+                    item.image_filename = saved_filename
 
     db.session.commit()
+    migrate_db_images_to_uploads()
 
 @app.route(f'/{ADMIN_SECRET_PATH}/orders_partial')
 @admin_required
@@ -579,15 +585,91 @@ def admin_orders_meta():
         'ready_count': building_orders_query().filter_by(status='ready').count(),
         'building': current_admin_building()
     })
-def get_upload_blob(file_storage):
+def get_clean_port(default=10000):
+    raw_port = str(os.getenv('PORT', default)).strip()
+    digits = ''.join(ch for ch in raw_port if ch.isdigit())
+    return int(digits or default)
+
+
+def _safe_upload_filename(original_name='menu-image'):
+    safe_name = secure_filename(original_name or 'menu-image')
+    stem = os.path.splitext(safe_name)[0] or 'menu-image'
+    return f"{stem[:40]}-{uuid.uuid4().hex[:12]}.webp"
+
+
+def _save_image_bytes_as_webp(raw_bytes, original_name='menu-image', max_size=(600, 450), quality=78):
+    """Compress any uploaded/seed image into a small WebP file in static/uploads/menu."""
+    if not raw_bytes or Image is None:
+        return None
+
+    os.makedirs(UPLOAD_MENU_DIR, exist_ok=True)
+    filename = _safe_upload_filename(original_name)
+    output_path = os.path.join(UPLOAD_MENU_DIR, filename)
+
+    try:
+        image = Image.open(BytesIO(raw_bytes))
+        if ImageOps is not None:
+            image = ImageOps.exif_transpose(image)
+        image = image.convert('RGB')
+        image.thumbnail(max_size, Image.Resampling.LANCZOS)
+
+        canvas = Image.new('RGB', max_size, (255, 255, 255))
+        x = (max_size[0] - image.width) // 2
+        y = (max_size[1] - image.height) // 2
+        canvas.paste(image, (x, y))
+        canvas.save(output_path, 'WEBP', quality=quality, optimize=True, method=6)
+        return filename
+    except Exception as exc:
+        app.logger.exception('Failed to optimize menu image: %s', exc)
+        return None
+
+
+def save_menu_image_upload(file_storage):
+    """Save admin uploaded image as optimized WebP and return only the filename for DB."""
     if not file_storage or not file_storage.filename:
-        return None, None, None
-    filename = secure_filename(file_storage.filename)
-    mime_type = file_storage.mimetype or mimetypes.guess_type(filename)[0] or 'application/octet-stream'
-    data = file_storage.read()
-    if not data:
-        return None, None, None
-    return data, mime_type, filename
+        return None
+    raw_bytes = file_storage.read()
+    return _save_image_bytes_as_webp(raw_bytes, file_storage.filename)
+
+
+def menu_item_has_image(item):
+    if item.image_filename:
+        file_path = os.path.join(UPLOAD_MENU_DIR, item.image_filename)
+        if os.path.exists(file_path):
+            return True
+    return bool(item.image_data)
+
+
+def menu_item_image_src(item):
+    if item.image_filename:
+        file_path = os.path.join(UPLOAD_MENU_DIR, item.image_filename)
+        if os.path.exists(file_path):
+            return url_for('static', filename=f'{UPLOAD_MENU_URL_PREFIX}/{item.image_filename}')
+    if item.image_data:
+        return url_for('menu_item_image', item_id=item.id)
+    return None
+
+
+def migrate_db_images_to_uploads():
+    """Move old DB BLOB images to optimized WebP files so pages load faster."""
+    if Image is None:
+        return
+    changed = False
+    for item in MenuItem.query.filter(MenuItem.image_data.is_not(None)).all():
+        # Skip if a real uploaded file already exists.
+        if item.image_filename and os.path.exists(os.path.join(UPLOAD_MENU_DIR, item.image_filename)):
+            item.image_data = None
+            item.image_mime_type = 'image/webp'
+            changed = True
+            continue
+        filename = _save_image_bytes_as_webp(item.image_data, item.image_filename or item.name)
+        if filename:
+            item.image_filename = filename
+            item.image_mime_type = 'image/webp'
+            item.image_data = None
+            changed = True
+    if changed:
+        db.session.commit()
 
 
 @app.context_processor
@@ -597,6 +679,8 @@ def inject_globals():
         'student_order_url': url_for('index'),
         'jordan_now_value': jordan_now(),
         'jordan_timezone_label': 'Asia/Amman',
+        'menu_item_image_src': menu_item_image_src,
+        'menu_item_has_image': menu_item_has_image,
     }
 
 
@@ -932,7 +1016,7 @@ def manage_menu():
             price_raw = request.form.get('price', '0').strip()
             category_id = request.form.get('category_id')
             featured = request.form.get('featured') == '1'
-            image_data, image_mime, image_filename = get_upload_blob(request.files.get('image_file'))
+            image_filename = save_menu_image_upload(request.files.get('image_file'))
             if not name or not category_id:
                 flash('الرجاء تعبئة اسم الصنف والقسم.', 'danger')
                 return redirect(url_for('manage_menu'))
@@ -948,8 +1032,8 @@ def manage_menu():
                 category_id=int(category_id),
                 featured=featured,
                 available=True,
-                image_data=image_data,
-                image_mime_type=image_mime,
+                image_data=None,
+                image_mime_type='image/webp' if image_filename else None,
                 image_filename=image_filename,
             ))
             db.session.commit()
@@ -989,12 +1073,26 @@ def edit_menu_item(item_id):
     item.featured = featured
     item.available = available
 
-    image_data, image_mime, image_filename = get_upload_blob(request.files.get('image_file'))
-    if image_data:
-        item.image_data = image_data
-        item.image_mime_type = image_mime
+    image_filename = save_menu_image_upload(request.files.get('image_file'))
+    if image_filename:
+        if item.image_filename:
+            old_path = os.path.join(UPLOAD_MENU_DIR, item.image_filename)
+            if os.path.exists(old_path):
+                try:
+                    os.remove(old_path)
+                except Exception:
+                    pass
+        item.image_data = None
+        item.image_mime_type = 'image/webp'
         item.image_filename = image_filename
     elif remove_image:
+        if item.image_filename:
+            old_path = os.path.join(UPLOAD_MENU_DIR, item.image_filename)
+            if os.path.exists(old_path):
+                try:
+                    os.remove(old_path)
+                except Exception:
+                    pass
         item.image_data = None
         item.image_mime_type = None
         item.image_filename = None
@@ -1049,4 +1147,4 @@ with app.app_context():
     seed_data()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+    app.run(host="0.0.0.0", port=get_clean_port())
