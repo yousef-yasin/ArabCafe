@@ -2397,3 +2397,55 @@ body.student-layout .cart-added-toast{bottom:82px !important;}
   .student-bottom-nav{width:calc(100% - 34px) !important;min-height:50px !important;padding:6px 10px !important;gap:10px !important;}
   .bottom-nav-btn{height:36px !important;}
 }
+
+/* ===== Final fix: show full menu product images without cropping ===== */
+.student-product-img,
+.student-product-placeholder{
+  height:190px !important;
+  object-fit:contain !important;
+  object-position:center center !important;
+  background:#fff7ef !important;
+  padding:6px !important;
+  border-radius:16px 16px 0 0 !important;
+}
+.student-product-card{
+  overflow:hidden !important;
+}
+@media (max-width: 900px){
+  .student-product-img,
+  .student-product-placeholder{
+    height:172px !important;
+    padding:5px !important;
+  }
+}
+
+/* ===== Final final: product images full width like before ===== */
+body.student-layout .student-product-card{
+  overflow:hidden !important;
+  border-radius:18px !important;
+}
+body.student-layout .student-product-img,
+body.student-layout .student-product-placeholder{
+  width:100% !important;
+  height:220px !important;
+  display:block !important;
+  object-fit:cover !important;
+  object-position:center center !important;
+  padding:0 !important;
+  margin:0 !important;
+  background:#fff !important;
+  border-radius:18px 18px 0 0 !important;
+}
+body.student-layout .student-product-body{
+  min-height:170px !important;
+  padding:18px 16px 16px !important;
+}
+@media (max-width: 900px){
+  body.student-layout .student-product-img,
+  body.student-layout .student-product-placeholder{
+    height:185px !important;
+  }
+  body.student-layout .student-product-body{
+    min-height:150px !important;
+  }
+}
