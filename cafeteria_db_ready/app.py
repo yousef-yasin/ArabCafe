@@ -3,24 +3,17 @@ from zoneinfo import ZoneInfo
 from functools import wraps
 from collections import defaultdict
 from io import BytesIO
+from PIL import Image, ImageChops, ImageOps
 import json
 import logging
 import mimetypes
 import os
-import re
-import uuid
 
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, send_file, abort, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, inspect, text
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-
-try:
-    from PIL import Image, ImageOps
-except Exception:
-    Image = None
-    ImageOps = None
 
 try:
     from escpos.printer import Network
@@ -30,31 +23,6 @@ except Exception:
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'cafeteria.db')
 SEED_DIR = os.path.join(BASE_DIR, 'seed')
-UPLOAD_MENU_DIR = os.path.join(BASE_DIR, 'static', 'uploads', 'menu')
-UPLOAD_MENU_URL_PREFIX = 'uploads/menu'
-
-
-def load_local_env_file():
-    """Load .env values locally without requiring extra packages."""
-    env_path = os.path.join(BASE_DIR, '.env')
-    if not os.path.exists(env_path):
-        return
-    try:
-        with open(env_path, 'r', encoding='utf-8') as env_file:
-            for raw_line in env_file:
-                line = raw_line.strip()
-                if not line or line.startswith('#') or '=' not in line:
-                    continue
-                key, value = line.split('=', 1)
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                if key and key not in os.environ:
-                    os.environ[key] = value
-    except Exception as exc:
-        logging.warning('Could not load .env file: %s', exc)
-
-
-load_local_env_file()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-change-me')
@@ -524,11 +492,10 @@ def seed_data():
             )
             db.session.add(category)
             db.session.flush()
-            img_filename = None
+            img_bytes, img_mime, img_filename = (None, None, None)
             image_file = CATEGORY_IMAGE_FILES.get(cat_data['name'])
             if image_file:
-                img_bytes, img_mime, original_filename = read_seed_file(image_file)
-                img_filename = _save_image_bytes_as_webp(img_bytes, original_filename) if img_bytes else None
+                img_bytes, img_mime, img_filename = read_seed_file(image_file)
 
             for idx, item in enumerate(cat_data['items']):
                 name, price = item[0], item[1]
@@ -540,24 +507,21 @@ def seed_data():
                     featured=idx < 3,
                     category_id=category.id,
                     available=True,
-                    image_data=None,
-                    image_mime_type='image/webp' if (cat_data['show_image'] and img_filename) else None,
+                    image_data=img_bytes if cat_data['show_image'] else None,
+                    image_mime_type=img_mime if cat_data['show_image'] else None,
                     image_filename=img_filename if cat_data['show_image'] else None,
                 ))
     else:
-        # Backfill old databases so category images become optimized files, not DB blobs.
-        for item in MenuItem.query.filter((MenuItem.image_filename.is_(None)) & (MenuItem.image_data.is_(None)) & (MenuItem.category_id.is_not(None))).all():
+        # Backfill old databases so images become stored in DB.
+        for item in MenuItem.query.filter((MenuItem.image_data.is_(None)) & (MenuItem.category_id.is_not(None))).all():
             image_file = CATEGORY_IMAGE_FILES.get(item.category.name)
             if image_file and item.category.show_image:
-                img_bytes, img_mime, original_filename = read_seed_file(image_file)
-                saved_filename = _save_image_bytes_as_webp(img_bytes, original_filename) if img_bytes else None
-                if saved_filename:
-                    item.image_data = None
-                    item.image_mime_type = 'image/webp'
-                    item.image_filename = saved_filename
+                img_bytes, img_mime, img_filename = read_seed_file(image_file)
+                item.image_data = img_bytes
+                item.image_mime_type = img_mime
+                item.image_filename = img_filename
 
     db.session.commit()
-    migrate_db_images_to_uploads()
 
 @app.route(f'/{ADMIN_SECRET_PATH}/orders_partial')
 @admin_required
@@ -585,91 +549,116 @@ def admin_orders_meta():
         'ready_count': building_orders_query().filter_by(status='ready').count(),
         'building': current_admin_building()
     })
-def get_clean_port(default=10000):
-    raw_port = str(os.getenv('PORT', default)).strip()
-    digits = ''.join(ch for ch in raw_port if ch.isdigit())
-    return int(digits or default)
+def _trim_plain_borders(image):
+    """Remove plain white/solid borders that make product photos look smaller inside cards."""
+    rgb = image.convert('RGB')
+
+    # First try trimming against the corner background color.
+    bg = Image.new('RGB', rgb.size, rgb.getpixel((0, 0)))
+    diff = ImageChops.difference(rgb, bg)
+    diff = ImageChops.add(diff, diff, 2.0, -18)
+    bbox = diff.getbbox()
+
+    if bbox:
+        left, top, right, bottom = bbox
+        # Keep a tiny safety margin so the crop never touches the product too tightly.
+        margin = 4
+        left = max(0, left - margin)
+        top = max(0, top - margin)
+        right = min(rgb.width, right + margin)
+        bottom = min(rgb.height, bottom + margin)
+
+        # Only trim when it removes a meaningful border.
+        removed_x = rgb.width - (right - left)
+        removed_y = rgb.height - (bottom - top)
+        if removed_x > 12 or removed_y > 12:
+            return image.crop((left, top, right, bottom))
+
+    return image
 
 
-def _safe_upload_filename(original_name='menu-image'):
-    safe_name = secure_filename(original_name or 'menu-image')
-    stem = os.path.splitext(safe_name)[0] or 'menu-image'
-    return f"{stem[:40]}-{uuid.uuid4().hex[:12]}.webp"
+def _center_crop_to_ratio(image, ratio=1.6):
+    """Crop from the center to match the product card image ratio."""
+    width, height = image.size
+    if width <= 0 or height <= 0:
+        return image
+
+    current_ratio = width / height
+    if current_ratio > ratio:
+        new_width = int(height * ratio)
+        left = max(0, (width - new_width) // 2)
+        return image.crop((left, 0, left + new_width, height))
+
+    if current_ratio < ratio:
+        new_height = int(width / ratio)
+        top = max(0, (height - new_height) // 2)
+        return image.crop((0, top, width, top + new_height))
+
+    return image
 
 
-def _save_image_bytes_as_webp(raw_bytes, original_name='menu-image', max_size=(600, 450), quality=78):
-    """Compress any uploaded/seed image into a small WebP file in static/uploads/menu."""
-    if not raw_bytes or Image is None:
-        return None
+def optimize_menu_image_bytes(raw_data):
+    """Convert any uploaded menu image to a fast, card-cover WebP image."""
+    image = Image.open(BytesIO(raw_data))
+    image = ImageOps.exif_transpose(image)
 
-    os.makedirs(UPLOAD_MENU_DIR, exist_ok=True)
-    filename = _safe_upload_filename(original_name)
-    output_path = os.path.join(UPLOAD_MENU_DIR, filename)
-
-    try:
-        image = Image.open(BytesIO(raw_bytes))
-        if ImageOps is not None:
-            image = ImageOps.exif_transpose(image)
+    # Put transparent images on a warm white background before saving to WebP.
+    if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
+        background = Image.new('RGB', image.size, (255, 253, 249))
+        background.paste(image.convert('RGBA'), mask=image.convert('RGBA').split()[-1])
+        image = background
+    else:
         image = image.convert('RGB')
-        image.thumbnail(max_size, Image.Resampling.LANCZOS)
 
-        canvas = Image.new('RGB', max_size, (255, 255, 255))
-        x = (max_size[0] - image.width) // 2
-        y = (max_size[1] - image.height) // 2
-        canvas.paste(image, (x, y))
-        canvas.save(output_path, 'WEBP', quality=quality, optimize=True, method=6)
-        return filename
-    except Exception as exc:
-        app.logger.exception('Failed to optimize menu image: %s', exc)
-        return None
+    image = _trim_plain_borders(image)
+    image = _center_crop_to_ratio(image, ratio=1.6)
+    image = image.resize((800, 500), Image.Resampling.LANCZOS)
+
+    output = BytesIO()
+    image.save(output, format='WEBP', quality=82, method=6)
+    return output.getvalue()
 
 
-def save_menu_image_upload(file_storage):
-    """Save admin uploaded image as optimized WebP and return only the filename for DB."""
+def get_upload_blob(file_storage):
     if not file_storage or not file_storage.filename:
-        return None
-    raw_bytes = file_storage.read()
-    return _save_image_bytes_as_webp(raw_bytes, file_storage.filename)
+        return None, None, None
+
+    original_filename = secure_filename(file_storage.filename)
+    raw_data = file_storage.read()
+    if not raw_data:
+        return None, None, None
+
+    mime_type = file_storage.mimetype or mimetypes.guess_type(original_filename)[0] or 'application/octet-stream'
+
+    if mime_type.startswith('image/'):
+        try:
+            data = optimize_menu_image_bytes(raw_data)
+            base_name = os.path.splitext(original_filename)[0] or 'menu-item'
+            filename = f"{secure_filename(base_name)}-cover.webp"
+            return data, 'image/webp', filename
+        except Exception as exc:
+            app.logger.exception('Failed optimizing uploaded image %s: %s', original_filename, exc)
+
+    return raw_data, mime_type, original_filename
 
 
-def menu_item_has_image(item):
-    if item.image_filename:
-        file_path = os.path.join(UPLOAD_MENU_DIR, item.image_filename)
-        if os.path.exists(file_path):
-            return True
-    return bool(item.image_data)
-
-
-def menu_item_image_src(item):
-    if item.image_filename:
-        file_path = os.path.join(UPLOAD_MENU_DIR, item.image_filename)
-        if os.path.exists(file_path):
-            return url_for('static', filename=f'{UPLOAD_MENU_URL_PREFIX}/{item.image_filename}')
-    if item.image_data:
-        return url_for('menu_item_image', item_id=item.id)
-    return None
-
-
-def migrate_db_images_to_uploads():
-    """Move old DB BLOB images to optimized WebP files so pages load faster."""
-    if Image is None:
-        return
+def normalize_existing_menu_images():
+    """One-time cleanup for old DB images so all cards fill the image area like new uploads."""
     changed = False
-    for item in MenuItem.query.filter(MenuItem.image_data.is_not(None)).all():
-        # Skip if a real uploaded file already exists.
-        if item.image_filename and os.path.exists(os.path.join(UPLOAD_MENU_DIR, item.image_filename)):
-            item.image_data = None
-            item.image_mime_type = 'image/webp'
-            changed = True
+    for item in MenuItem.query.filter(MenuItem.image_data.isnot(None)).all():
+        if item.image_filename and item.image_filename.endswith('-cover.webp') and item.image_mime_type == 'image/webp':
             continue
-        filename = _save_image_bytes_as_webp(item.image_data, item.image_filename or item.name)
-        if filename:
-            item.image_filename = filename
+        try:
+            item.image_data = optimize_menu_image_bytes(item.image_data)
+            base_name = os.path.splitext(item.image_filename or f'menu-item-{item.id}')[0]
+            item.image_filename = f"{secure_filename(base_name) or ('menu-item-' + str(item.id))}-cover.webp"
             item.image_mime_type = 'image/webp'
-            item.image_data = None
             changed = True
+        except Exception as exc:
+            app.logger.warning('Skipping image normalization for item %s: %s', item.id, exc)
     if changed:
         db.session.commit()
+
 
 
 @app.context_processor
@@ -679,8 +668,6 @@ def inject_globals():
         'student_order_url': url_for('index'),
         'jordan_now_value': jordan_now(),
         'jordan_timezone_label': 'Asia/Amman',
-        'menu_item_image_src': menu_item_image_src,
-        'menu_item_has_image': menu_item_has_image,
     }
 
 
@@ -1016,7 +1003,7 @@ def manage_menu():
             price_raw = request.form.get('price', '0').strip()
             category_id = request.form.get('category_id')
             featured = request.form.get('featured') == '1'
-            image_filename = save_menu_image_upload(request.files.get('image_file'))
+            image_data, image_mime, image_filename = get_upload_blob(request.files.get('image_file'))
             if not name or not category_id:
                 flash('الرجاء تعبئة اسم الصنف والقسم.', 'danger')
                 return redirect(url_for('manage_menu'))
@@ -1032,8 +1019,8 @@ def manage_menu():
                 category_id=int(category_id),
                 featured=featured,
                 available=True,
-                image_data=None,
-                image_mime_type='image/webp' if image_filename else None,
+                image_data=image_data,
+                image_mime_type=image_mime,
                 image_filename=image_filename,
             ))
             db.session.commit()
@@ -1073,26 +1060,12 @@ def edit_menu_item(item_id):
     item.featured = featured
     item.available = available
 
-    image_filename = save_menu_image_upload(request.files.get('image_file'))
-    if image_filename:
-        if item.image_filename:
-            old_path = os.path.join(UPLOAD_MENU_DIR, item.image_filename)
-            if os.path.exists(old_path):
-                try:
-                    os.remove(old_path)
-                except Exception:
-                    pass
-        item.image_data = None
-        item.image_mime_type = 'image/webp'
+    image_data, image_mime, image_filename = get_upload_blob(request.files.get('image_file'))
+    if image_data:
+        item.image_data = image_data
+        item.image_mime_type = image_mime
         item.image_filename = image_filename
     elif remove_image:
-        if item.image_filename:
-            old_path = os.path.join(UPLOAD_MENU_DIR, item.image_filename)
-            if os.path.exists(old_path):
-                try:
-                    os.remove(old_path)
-                except Exception:
-                    pass
         item.image_data = None
         item.image_mime_type = None
         item.image_filename = None
@@ -1145,6 +1118,7 @@ with app.app_context():
     db.create_all()
     apply_schema_fixes()
     seed_data()
+    normalize_existing_menu_images()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=get_clean_port())
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
