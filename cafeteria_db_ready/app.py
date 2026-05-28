@@ -23,6 +23,32 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'cafeteria.db')
 SEED_DIR = os.path.join(BASE_DIR, 'seed')
 
+
+def load_local_env():
+    """Load .env values locally without overriding Render/real environment variables."""
+    env_path = os.path.join(BASE_DIR, '.env')
+    if not os.path.exists(env_path):
+        return
+    with open(env_path, 'r', encoding='utf-8') as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            key, value = line.split('=', 1)
+            key = key.strip()
+            value = value.strip().strip('\"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+def get_int_env(name, default):
+    raw_value = os.getenv(name, str(default)).strip()
+    digits = ''.join(ch for ch in raw_value if ch.isdigit())
+    return int(digits) if digits else default
+
+
+load_local_env()
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-change-me')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
@@ -42,7 +68,7 @@ PRINTER_IPS = [
     for ip in os.getenv('PRINTER_IPS', '192.168.1.100,192.168.1.50').split(',')
     if ip.strip()
 ]
-PRINTER_PORT = int(os.getenv('PRINTER_PORT', '9100'))
+PRINTER_PORT = get_int_env('PRINTER_PORT', 9100)
 
 
 def jordan_now():
@@ -467,17 +493,22 @@ def seed_site_asset(key, seed_filename):
 
 
 def seed_data():
-    if not Admin.query.first():
-        admin_username = os.getenv('ADMIN_USERNAME')
-        admin_password = os.getenv('ADMIN_PASSWORD')
+    admin_username = (os.getenv('ADMIN_USERNAME') or 'admin').strip()
+    admin_password = (os.getenv('ADMIN_PASSWORD') or 'admin123').strip()
 
-        if admin_username and admin_password:
-            db.session.add(
-                Admin(
-                    username=admin_username,
-                    password_hash=generate_password_hash(admin_password)
-                )
-            )
+    # Make the admin login always match the values saved in .env / Render Environment.
+    # If the admin is missing, create it. If it already exists, update its password.
+    if admin_username and admin_password:
+        admin = Admin.query.filter_by(username=admin_username).first()
+        if not admin:
+            admin = Admin(username=admin_username)
+            db.session.add(admin)
+        admin.password_hash = generate_password_hash(admin_password)
+
+        # If there is an old default admin account, keep it synced too.
+        default_admin = Admin.query.filter_by(username='admin').first()
+        if default_admin and default_admin.id != admin.id and admin_username == 'admin':
+            default_admin.password_hash = generate_password_hash(admin_password)
     seed_site_asset('logo', 'logo.png')
     seed_site_asset('menu_board', 'menu-board.png')
 
