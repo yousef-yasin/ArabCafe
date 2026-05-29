@@ -2451,46 +2451,16 @@ body.student-layout .student-product-body{
 }
 
 
-/* =========================================================
-   FINAL: remove category shell + categoryTabs background
-   keep only the pills/titles
-   ========================================================= */
-.student-category-shell,
-#categoryTabs.student-category-tabs,
-.student-category-tabs {
-    background: transparent !important;
-    background-color: transparent !important;
-    background-image: none !important;
-    border: 0 !important;
-    outline: 0 !important;
-    box-shadow: none !important;
+/* Reduce space between product cards */
+.student-product-row,
+.product-row,
+.products-slider{
+    gap:8px !important;
 }
 
-.student-category-shell::before,
-.student-category-shell::after,
-#categoryTabs.student-category-tabs::before,
-#categoryTabs.student-category-tabs::after,
-.student-category-tabs::before,
-.student-category-tabs::after {
-    display: none !important;
-    content: none !important;
-    background: transparent !important;
-    border: 0 !important;
-    box-shadow: none !important;
-}
-
-/* remove any extra rounded rectangle layer on the direct tabs holder */
-.student-category-shell > *,
-#categoryTabs {
-    background-color: transparent !important;
-    background-image: none !important;
-    box-shadow: none !important;
-}
-
-/* keep each category button itself as the only visible pill */
-.student-category-tabs a,
-.student-category-tabs button,
-#categoryTabs a,
-#categoryTabs button {
-    box-shadow: none !important;
+.student-product-card,
+.product-card,
+.menu-product-card{
+    margin-left:0 !important;
+    margin-right:0 !important;
 }
