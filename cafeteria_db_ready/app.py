@@ -758,11 +758,14 @@ def place_order():
 
     order_items = []
     total = 0
+    has_pizza_item = False
     for cart_item in cart_items:
         menu_item = MenuItem.query.get(int(cart_item['id']))
         qty = int(cart_item['qty'])
         if not menu_item or qty < 1 or not menu_item.available:
             continue
+        if menu_item.category and menu_item.category.slug == 'pizza':
+            has_pizza_item = True
         subtotal = menu_item.price * qty
         total += subtotal
         order_items.append({
@@ -771,6 +774,10 @@ def place_order():
             'quantity': qty,
             'unit_price': menu_item.price,
         })
+
+    if building == 'I' and has_pizza_item:
+        flash('طلبك مرفوض: لا يمكن طلب البيتزا من مبنى I. البيتزا متاحة فقط من مبنى B.', 'danger')
+        return redirect(url_for('index'))
 
     if not order_items:
         flash('المنتجات المختارة غير صالحة أو غير متاحة حالياً.', 'danger')

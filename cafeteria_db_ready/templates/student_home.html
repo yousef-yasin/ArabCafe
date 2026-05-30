@@ -6,7 +6,7 @@
       {% for category in categories %}
         <button type="button" class="student-category-tab {% if loop.first %}active{% endif %}" data-target="category-{{ category.id }}">
           <span>{{ category.name }}</span>
-          <small>{% if 'قهوة' in category.name and ('باردة' not in category.name) %}☕{% elif 'باردة' in category.name or 'مثلج' in category.name %}❄️{% elif 'شاي' in category.name %}🍵{% elif 'شيك' in category.name or 'حليب' in category.name %}🥤{% elif 'سناك' in category.name %}🍪{% elif 'بوكس' in category.name %}📦{% elif 'بيتزا' in category.name %}🍕{% else %}🍽️{% endif %}</small>
+          <small>{% if 'قهوة' in category.name and ('باردة' not in category.name) %}{% elif 'باردة' in category.name or 'مثلج' in category.name %}️{% elif 'شاي' in category.name %}{% elif 'شيك' in category.name or 'حليب' in category.name %}{% elif 'سناك' in category.name %}{% elif 'بوكس' in category.name %}{% elif 'بيتزا' in category.name %}{% else %}️{% endif %}</small>
         </button>
       {% endfor %}
     </div>
@@ -17,7 +17,7 @@
     <section class="student-menu-section" id="category-{{ category.id }}">
       <div class="student-section-head">
         <a href="#category-{{ category.id }}" class="student-see-all">عرض الكل ←</a>
-        <h2>{{ category.name }} <span>{% if 'قهوة' in category.name and ('باردة' not in category.name) %}☕{% elif 'باردة' in category.name or 'مثلج' in category.name %}❄️{% elif 'بيتزا' in category.name %}🍕{% else %}☕{% endif %}</span></h2>
+        <h2>{{ category.name }} <span>{% if 'قهوة' in category.name and ('باردة' not in category.name) %}{% elif 'باردة' in category.name or 'مثلج' in category.name %}️{% elif 'بيتزا' in category.name %}{% else %}{% endif %}</span></h2>
       </div>
 
       <div class="student-product-row">
@@ -32,7 +32,7 @@
             <h3>{{ item.name }}</h3>
             <p>Arab Cafe - {{ category.name }}</p>
             <div class="student-product-foot">
-              <button class="student-add-btn add-to-cart" data-id="{{ item.id }}" data-name="{{ item.name }}" data-price="{{ item.price }}" type="button">+</button>
+              <button class="student-add-btn add-to-cart" data-id="{{ item.id }}" data-name="{{ item.name }}" data-price="{{ item.price }}" data-category-slug="{{ category.slug }}" type="button">+</button>
               <strong>{{ '%.2f'|format(item.price) }} د.أ</strong>
             </div>
           </div>
@@ -52,14 +52,14 @@
     <strong>الرئيسية</strong>
   </button>
   <button type="button" class="bottom-nav-btn" id="cart-float-btn">
-    <span>🛍️</span>
+    <span>️</span>
     <strong>الطلبات</strong>
     <em id="cart-count">0</em>
   </button>
 </div>
 
 <div class="cart-added-toast" id="cart-added-toast">
-  <span>✓</span>
+  <span></span>
   <strong id="cart-toast-text">تمت الإضافة</strong>
 </div>
 
@@ -71,7 +71,7 @@
         <h3 class="mb-1">سلة الطلب</h3>
         <div class="text-muted small">راجع طلبك ثم أرسله مباشرة.</div>
       </div>
-      <button type="button" class="cart-close-btn" id="cart-close-btn">✕</button>
+      <button type="button" class="cart-close-btn" id="cart-close-btn"></button>
     </div>
 
     <div id="cart-items" class="cart-items-box mb-3 text-muted">لسا ما أضفت أي منتج.</div>

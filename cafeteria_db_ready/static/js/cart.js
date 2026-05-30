@@ -107,12 +107,28 @@ document.querySelectorAll('.add-to-cart').forEach(btn => {
     const id = Number(btn.dataset.id);
     const name = btn.dataset.name;
     const price = Number(btn.dataset.price);
-    if (!cart[id]) cart[id] = { id, name, price, qty: 0 };
+    const categorySlug = btn.dataset.categorySlug || '';
+    if (!cart[id]) cart[id] = { id, name, price, categorySlug, qty: 0 };
     cart[id].qty += 1;
     renderCart();
     pulseButton(btn);
     showCartToast(`تمت إضافة ${name} إلى السلة`);
   });
 });
+
+const orderForm = document.getElementById('order-form');
+if (orderForm) {
+  orderForm.addEventListener('submit', (event) => {
+    const buildingSelect = orderForm.querySelector('select[name="building"]');
+    const building = buildingSelect ? String(buildingSelect.value || '').toUpperCase() : '';
+    const hasPizza = Object.values(cart).some(item => item.categorySlug === 'pizza');
+    if (building === 'I' && hasPizza) {
+      event.preventDefault();
+      const message = 'طلبك مرفوض: لا يمكن طلب البيتزا من مبنى I. البيتزا متاحة فقط من مبنى B.';
+      showCartToast(message);
+      alert(message);
+    }
+  });
+}
 
 renderCart();
