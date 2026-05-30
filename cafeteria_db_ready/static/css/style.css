@@ -2464,3 +2464,600 @@ body.student-layout .student-product-body{
     margin-left:0 !important;
     margin-right:0 !important;
 }
+
+
+
+/* =========================================================
+   ONLY CHANGE REQUESTED:
+   Menu category header + bottom nav only
+   ========================================================= */
+
+/* Menu category header */
+body.student-layout .student-category-shell{
+    position: sticky !important;
+    top: 70px !important;
+    z-index: 50 !important;
+    margin: 0 -18px 16px !important;
+    padding: 14px 18px 12px !important;
+    background: linear-gradient(180deg, rgba(243,235,221,.92), rgba(243,235,221,.55)) !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+    border: 0 !important;
+    box-shadow: 0 12px 28px rgba(42,28,19,.05) !important;
+    border-radius: 0 !important;
+}
+
+body.student-layout .student-category-tabs,
+body.student-layout #categoryTabs{
+    min-height: auto !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 2px 6px !important;
+    display: flex !important;
+    flex-direction: row-reverse !important;
+    gap: 12px !important;
+    overflow-x: auto !important;
+    scrollbar-width: none !important;
+}
+
+body.student-layout .student-category-tabs::-webkit-scrollbar,
+body.student-layout #categoryTabs::-webkit-scrollbar{
+    display: none !important;
+}
+
+body.student-layout .student-category-tab{
+    height: 48px !important;
+    min-width: auto !important;
+    flex: 0 0 auto !important;
+    padding: 0 24px !important;
+    border-radius: 999px !important;
+    border: 1px solid #e7d6bf !important;
+    background: rgba(255,250,243,.94) !important;
+    color: #3f2a1c !important;
+    box-shadow: 0 8px 18px rgba(42,28,19,.06) !important;
+    font-size: 15px !important;
+    font-weight: 900 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    white-space: nowrap !important;
+}
+
+body.student-layout .student-category-tab small{
+    order: -1 !important;
+    font-size: 14px !important;
+    opacity: .85 !important;
+    line-height: 1 !important;
+}
+
+body.student-layout .student-category-tab.active{
+    background: linear-gradient(140deg, #5a3a28, #2a1c13) !important;
+    color: #fff !important;
+    border-color: transparent !important;
+    box-shadow: 0 14px 26px -14px rgba(42,28,19,.8) !important;
+}
+
+/* Bottom nav: Home left, Orders right */
+body.student-layout .student-bottom-nav{
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    transform: none !important;
+    width: 100% !important;
+    min-height: auto !important;
+    padding: 0 14px 12px !important;
+    z-index: 10000 !important;
+    display: flex !important;
+    justify-content: center !important;
+    pointer-events: none !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    direction: ltr !important;
+    gap: 0 !important;
+}
+
+body.student-layout .student-bottom-nav::before{
+    content: "" !important;
+    position: absolute !important;
+    left: 50% !important;
+    bottom: 12px !important;
+    transform: translateX(-50%) !important;
+    width: min(520px, calc(100% - 28px)) !important;
+    height: 74px !important;
+    background: linear-gradient(150deg, rgba(43,30,20,.98), rgba(28,18,12,.98)) !important;
+    border: 1px solid rgba(224,192,121,.18) !important;
+    border-radius: 24px !important;
+    box-shadow: 0 24px 55px -20px rgba(42,28,19,.45) !important;
+    z-index: 0 !important;
+}
+
+body.student-layout .bottom-nav-btn{
+    pointer-events: auto !important;
+    position: relative !important;
+    z-index: 2 !important;
+    width: min(250px, calc((100vw - 44px) / 2)) !important;
+    height: 58px !important;
+    margin-top: 8px !important;
+    border: 0 !important;
+    border-radius: 20px !important;
+    background: transparent !important;
+    color: #d8c4aa !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 10px !important;
+    font-size: 15px !important;
+    font-weight: 900 !important;
+    box-shadow: none !important;
+    transition: .25s ease !important;
+}
+
+body.student-layout #student-home-btn{
+    order: 1 !important;
+}
+
+body.student-layout #cart-float-btn{
+    order: 2 !important;
+}
+
+body.student-layout .bottom-nav-btn.active,
+body.student-layout #student-home-btn.active{
+    color: #2a1c13 !important;
+    background: linear-gradient(140deg, #e0c079, #c49a4a) !important;
+    box-shadow: 0 8px 18px -8px rgba(196,154,74,.8) !important;
+}
+
+body.student-layout .bottom-nav-btn span{
+    font-size: 20px !important;
+    line-height: 1 !important;
+}
+
+body.student-layout .bottom-nav-btn strong{
+    font-size: 15px !important;
+    font-weight: 900 !important;
+}
+
+body.student-layout .bottom-nav-btn em{
+    min-width: 22px !important;
+    height: 22px !important;
+    padding: 0 6px !important;
+    border-radius: 999px !important;
+    background: #b36b3c !important;
+    color: #fff !important;
+    font-size: 12px !important;
+    font-weight: 900 !important;
+    display: inline-grid !important;
+    place-items: center !important;
+    box-shadow: 0 3px 8px rgba(140,77,39,.5) !important;
+}
+
+body.student-layout .bottom-nav-btn.active em{
+    background: #2a1c13 !important;
+    color: #e0c079 !important;
+}
+
+@media (max-width: 760px){
+    body.student-layout .student-category-shell{
+        top: 70px !important;
+        margin: 0 -14px 14px !important;
+        padding: 12px 14px 10px !important;
+    }
+
+    body.student-layout .student-category-tabs,
+    body.student-layout #categoryTabs{
+        gap: 10px !important;
+    }
+
+    body.student-layout .student-category-tab{
+        height: 46px !important;
+        padding: 0 18px !important;
+        font-size: 14px !important;
+    }
+
+    body.student-layout .student-bottom-nav::before{
+        width: calc(100% - 28px) !important;
+        height: 72px !important;
+    }
+
+    body.student-layout .bottom-nav-btn{
+        width: calc((100vw - 46px) / 2) !important;
+        height: 56px !important;
+    }
+}
+
+
+/* =========================================================
+   FIX: raise sticky menu header + center bottom nav buttons
+   ========================================================= */
+
+/* ارفع هيدر التصنيفات لما ينزل مع السكرول */
+body.student-layout .student-category-shell{
+    top: 0 !important;
+    margin-top: 0 !important;
+    padding-top: 10px !important;
+    padding-bottom: 8px !important;
+}
+
+/* خلي أزرار الرئيسية والطلبات في نص البار تماماً */
+body.student-layout .student-bottom-nav{
+    align-items: center !important;
+    padding: 0 14px 10px !important;
+}
+
+body.student-layout .student-bottom-nav::before{
+    bottom: 10px !important;
+    height: 74px !important;
+}
+
+body.student-layout .bottom-nav-btn{
+    margin-top: 0 !important;
+    height: 58px !important;
+    align-self: center !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transform: translateY(0) !important;
+}
+
+/* ترتيب ثابت: الرئيسية يسار، الطلبات يمين */
+body.student-layout #student-home-btn{
+    order: 1 !important;
+}
+
+body.student-layout #cart-float-btn{
+    order: 2 !important;
+}
+
+@media (max-width: 760px){
+    body.student-layout .student-category-shell{
+        top: 0 !important;
+        padding-top: 9px !important;
+        padding-bottom: 7px !important;
+    }
+
+    body.student-layout .student-bottom-nav::before{
+        bottom: 10px !important;
+        height: 72px !important;
+    }
+
+    body.student-layout .bottom-nav-btn{
+        height: 56px !important;
+        margin-top: 0 !important;
+    }
+}
+
+
+
+/* =========================================================
+   FINAL FIX: center bottom nav buttons perfectly
+   ========================================================= */
+body.student-layout .student-bottom-nav{
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 14px 10px !important;
+    line-height: 1 !important;
+}
+
+body.student-layout .student-bottom-nav::before{
+    bottom: 10px !important;
+    height: 74px !important;
+}
+
+body.student-layout .bottom-nav-btn{
+    margin: 0 !important;
+    padding: 0 !important;
+    height: 58px !important;
+    min-height: 58px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    align-self: center !important;
+    line-height: 1 !important;
+    transform: translateY(0) !important;
+}
+
+body.student-layout .bottom-nav-btn span,
+body.student-layout .bottom-nav-btn strong,
+body.student-layout .bottom-nav-btn em{
+    line-height: 1 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    transform: translateY(0) !important;
+}
+
+body.student-layout #student-home-btn,
+body.student-layout #cart-float-btn{
+    top: auto !important;
+    bottom: auto !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    transform: translateY(0) !important;
+}
+
+body.student-layout #student-home-btn{
+    order: 1 !important;
+}
+
+body.student-layout #cart-float-btn{
+    order: 2 !important;
+}
+
+@media (max-width: 760px){
+    body.student-layout .student-bottom-nav{
+        padding: 0 14px 10px !important;
+    }
+
+    body.student-layout .student-bottom-nav::before{
+        bottom: 10px !important;
+        height: 72px !important;
+    }
+
+    body.student-layout .bottom-nav-btn{
+        height: 56px !important;
+        min-height: 56px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+}
+
+
+/* FINAL USER FIXES: smaller bottom buttons, RTL categories, compact cards */
+body.student-layout .student-bottom-nav::before{
+    height:66px !important;
+    bottom:10px !important;
+    width:min(500px, calc(100% - 28px)) !important;
+}
+body.student-layout .bottom-nav-btn{
+    height:48px !important;
+    min-height:48px !important;
+    width:min(225px, calc((100vw - 54px) / 2)) !important;
+    border-radius:18px !important;
+    font-size:14px !important;
+    gap:8px !important;
+    margin:0 !important;
+    padding:0 !important;
+    align-items:center !important;
+    justify-content:center !important;
+    transform:none !important;
+}
+body.student-layout .bottom-nav-btn span{font-size:18px !important;line-height:1 !important;}
+body.student-layout .bottom-nav-btn strong{font-size:14px !important;line-height:1 !important;}
+body.student-layout .bottom-nav-btn em{
+    min-width:20px !important;
+    height:20px !important;
+    font-size:11px !important;
+    line-height:1 !important;
+}
+body.student-layout #student-home-btn{order:1 !important;}
+body.student-layout #cart-float-btn{order:2 !important;}
+
+body.student-layout .student-category-shell{direction:rtl !important;}
+body.student-layout .student-category-tabs,
+body.student-layout #categoryTabs{
+    direction:rtl !important;
+    flex-direction:row !important;
+    justify-content:flex-start !important;
+    overflow-x:auto !important;
+    scroll-snap-type:x proximity !important;
+}
+body.student-layout .student-category-tab{
+    flex:0 0 auto !important;
+    scroll-snap-align:start !important;
+}
+
+body.student-layout .student-product-row,
+body.student-layout .products-slider,
+body.student-layout .product-row{
+    gap:4px !important;
+    column-gap:4px !important;
+    row-gap:4px !important;
+    padding-left:0 !important;
+    padding-right:0 !important;
+}
+body.student-layout .student-product-card,
+body.student-layout .product-card,
+body.student-layout .menu-product-card{
+    width:190px !important;
+    min-width:190px !important;
+    max-width:190px !important;
+    margin:0 !important;
+    transform:none !important;
+}
+body.student-layout .student-product-img,
+body.student-layout .student-product-placeholder,
+body.student-layout .product-image{
+    height:135px !important;
+    object-fit:cover !important;
+}
+body.student-layout .student-product-body,
+body.student-layout .product-content{
+    min-height:125px !important;
+    padding:10px 12px 12px !important;
+}
+body.student-layout .student-product-body h3,
+body.student-layout .product-title{
+    font-size:15px !important;
+    line-height:1.2 !important;
+    margin-bottom:6px !important;
+}
+body.student-layout .student-product-body p,
+body.student-layout .product-desc{
+    font-size:11.5px !important;
+    line-height:1.3 !important;
+    margin-bottom:6px !important;
+}
+body.student-layout .student-product-foot strong,
+body.student-layout .product-price{font-size:15px !important;}
+body.student-layout .student-add-btn,
+body.student-layout .add-btn,
+body.student-layout .add-to-cart-btn{
+    width:34px !important;
+    height:34px !important;
+    min-width:34px !important;
+    font-size:21px !important;
+    border-radius:12px !important;
+}
+
+@media (max-width:760px){
+    body.student-layout .student-bottom-nav::before{
+        height:64px !important;
+        width:calc(100% - 28px) !important;
+    }
+    body.student-layout .bottom-nav-btn{
+        height:46px !important;
+        min-height:46px !important;
+        width:calc((100vw - 58px) / 2) !important;
+        font-size:13px !important;
+    }
+    body.student-layout .student-product-row,
+    body.student-layout .products-slider,
+    body.student-layout .product-row{gap:3px !important;}
+    body.student-layout .student-product-card,
+    body.student-layout .product-card,
+    body.student-layout .menu-product-card{
+        width:150px !important;
+        min-width:150px !important;
+        max-width:150px !important;
+    }
+    body.student-layout .student-product-img,
+    body.student-layout .student-product-placeholder,
+    body.student-layout .product-image{height:115px !important;}
+    body.student-layout .student-product-body,
+    body.student-layout .product-content{
+        min-height:118px !important;
+        padding:9px 10px 10px !important;
+    }
+    body.student-layout .student-product-body h3,
+    body.student-layout .product-title{font-size:14px !important;}
+    body.student-layout .student-product-body p,
+    body.student-layout .product-desc{font-size:10.5px !important;}
+    body.student-layout .student-product-foot strong,
+    body.student-layout .product-price{font-size:14px !important;}
+    body.student-layout .student-add-btn,
+    body.student-layout .add-btn,
+    body.student-layout .add-to-cart-btn{
+        width:32px !important;
+        height:32px !important;
+        min-width:32px !important;
+        font-size:20px !important;
+    }
+}
+
+
+/* FINAL FIX: bottom nav exact center alignment */
+body.student-layout .student-bottom-nav{
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    height: 86px !important;
+    padding: 0 14px 10px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0 !important;
+    direction: ltr !important;
+    pointer-events: none !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+body.student-layout .student-bottom-nav::before{
+    content: "" !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    bottom: auto !important;
+    transform: translate(-50%, -50%) !important;
+    width: min(520px, calc(100% - 28px)) !important;
+    height: 66px !important;
+    background: linear-gradient(150deg, rgba(43,30,20,.98), rgba(28,18,12,.98)) !important;
+    border: 1px solid rgba(224,192,121,.18) !important;
+    border-radius: 24px !important;
+    box-shadow: 0 24px 55px -20px rgba(42,28,19,.45) !important;
+    z-index: 0 !important;
+}
+body.student-layout .bottom-nav-btn{
+    pointer-events: auto !important;
+    position: relative !important;
+    z-index: 2 !important;
+    width: min(245px, calc((100vw - 54px) / 2)) !important;
+    height: 50px !important;
+    min-height: 50px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 20px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    align-self: center !important;
+    gap: 9px !important;
+    transform: translateY(0) !important;
+    top: auto !important;
+    bottom: auto !important;
+    line-height: 1 !important;
+}
+body.student-layout .bottom-nav-btn span,
+body.student-layout .bottom-nav-btn strong,
+body.student-layout .bottom-nav-btn em{
+    line-height: 1 !important;
+    margin: 0 !important;
+    transform: none !important;
+}
+body.student-layout #student-home-btn{
+    order: 1 !important;
+}
+body.student-layout #cart-float-btn{
+    order: 2 !important;
+}
+@media (max-width:760px){
+    body.student-layout .student-bottom-nav{
+        height: 82px !important;
+        padding-bottom: 8px !important;
+    }
+    body.student-layout .student-bottom-nav::before{
+        width: calc(100% - 28px) !important;
+        height: 64px !important;
+    }
+    body.student-layout .bottom-nav-btn{
+        height: 48px !important;
+        min-height: 48px !important;
+        width: calc((100vw - 58px) / 2) !important;
+    }
+}
+
+
+/* FINAL TINY FIX: lower bottom nav a little */
+body.student-layout .student-bottom-nav{
+    height: 78px !important;
+    padding: 0 14px 4px !important;
+}
+body.student-layout .student-bottom-nav::before{
+    top: auto !important;
+    bottom: 4px !important;
+    transform: translateX(-50%) !important;
+}
+body.student-layout .bottom-nav-btn{
+    transform: translateY(6px) !important;
+}
+@media (max-width:760px){
+    body.student-layout .student-bottom-nav{
+        height: 76px !important;
+        padding-bottom: 4px !important;
+    }
+    body.student-layout .student-bottom-nav::before{
+        bottom: 4px !important;
+    }
+    body.student-layout .bottom-nav-btn{
+        transform: translateY(5px) !important;
+    }
+}
