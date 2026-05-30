@@ -26,12 +26,12 @@
         <form method="POST" class="admin-login-form" autocomplete="off" data-no-autofill="true">
           <div class="mb-3">
             <label class="form-label">اسم المستخدم</label>
-            <input type="text" class="form-control form-control-lg rounded-pill" name="username" value="" placeholder="اكتب اسم المستخدم" autocomplete="off" autocapitalize="off" spellcheck="false" readonly onfocus="this.removeAttribute('readonly')" required>
+            <input type="text" class="form-control form-control-lg rounded-pill" name="username" value="" placeholder="اكتب اسم المستخدم" autocomplete="username" autocapitalize="off" spellcheck="false" inputmode="text" required>
           </div>
 
           <div class="mb-3">
             <label class="form-label">كلمة المرور</label>
-            <input type="password" class="form-control form-control-lg rounded-pill" name="password" value="" placeholder="اكتب كلمة المرور" autocomplete="new-password" readonly onfocus="this.removeAttribute('readonly')" required>
+            <input type="password" class="form-control form-control-lg rounded-pill" name="password" value="" placeholder="اكتب كلمة المرور" autocomplete="current-password" required>
           </div>
 
           <div class="mb-4">
@@ -52,15 +52,13 @@
 </section>
 
 <script>
-  // يمنع المتصفح من تعبئة اسم المستخدم/كلمة المرور تلقائياً في صفحة الأدمن.
+  // تنظيف الحقول بدون readonly حتى يظهر كيبورد الموبايل مباشرة عند الضغط.
   window.addEventListener('pageshow', function () {
     const form = document.querySelector('.admin-login-form');
     if (!form) return;
-    form.reset();
     form.querySelectorAll('input[name="username"], input[name="password"]').forEach(function (input) {
+      input.removeAttribute('readonly');
       input.value = '';
-      input.setAttribute('readonly', 'readonly');
-      setTimeout(function(){ input.value = ''; }, 80);
     });
   });
 </script>
