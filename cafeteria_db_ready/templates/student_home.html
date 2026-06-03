@@ -1,67 +1,73 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="student-cafe-page">
-  <div class="student-category-shell">
-    <div class="student-category-tabs" id="categoryTabs">
+<section class="container-fluid px-3 px-lg-5 mt-4 student-page student-app-menu">
+  <div class="student-menu-top mb-4">
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+      <div class="cart-floating-wrap in-page-cart">
+        <button type="button" class="cart-floating-btn" id="cart-float-btn">
+          <span class="cart-floating-count" id="cart-count">0</span>
+          <span>السلة</span>
+          <span class="cart-floating-icon">🛒</span>
+        </button>
+      </div>
+
+      <div class="text-end ms-auto">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="Arab Cafe" class="student-mini-logo mb-2" onerror="this.style.display='none'">
+        <h1 class="menu-page-title mb-1">المنيو</h1>
+        <p class="menu-page-subtitle mb-0">اختر القسم ثم أضف الطلبات بسهولة.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="category-tabs-wrap mb-4">
+    <div class="category-tabs" id="categoryTabs">
       {% for category in categories %}
-        <button type="button" class="student-category-tab {% if loop.first %}active{% endif %}" data-target="category-{{ category.id }}">
-          <span>{{ category.name }}</span>
-          <small>{% if 'قهوة' in category.name and ('باردة' not in category.name) %}{% elif 'باردة' in category.name or 'مثلج' in category.name %}️{% elif 'شاي' in category.name %}{% elif 'شيك' in category.name or 'حليب' in category.name %}{% elif 'سناك' in category.name %}{% elif 'بوكس' in category.name %}{% elif 'بيتزا' in category.name %}{% else %}️{% endif %}</small>
+        <button type="button" class="category-tab-btn {% if loop.first %}active{% endif %}" data-target="category-{{ category.id }}">
+          {{ category.name }}
         </button>
       {% endfor %}
     </div>
   </div>
 
-  <div class="student-menu-sections">
+  <div class="menu-sections-stack">
     {% for category in categories %}
-    <section class="student-menu-section" id="category-{{ category.id }}">
-      <div class="student-section-head">
-        <a href="#category-{{ category.id }}" class="student-see-all">عرض الكل ←</a>
-        <h2>{{ category.name }} <span>{% if 'قهوة' in category.name and ('باردة' not in category.name) %}{% elif 'باردة' in category.name or 'مثلج' in category.name %}️{% elif 'بيتزا' in category.name %}{% else %}{% endif %}</span></h2>
+    <section class="menu-category-row" id="category-{{ category.id }}">
+      <div class="category-row-head">
+        <div class="d-flex align-items-center gap-2">
+          <span class="category-row-icon">{% if 'قهوة' in category.name or 'كوفي' in category.name %}☕{% elif 'باردة' in category.name or 'مثلج' in category.name %}🥤{% elif 'شاي' in category.name %}🧋{% elif 'حلو' in category.name %}🧁{% elif 'سلط' in category.name %}🥗{% elif 'بيتزا' in category.name %}🍕{% else %}🍽️{% endif %}</span>
+          <h2 class="section-title mb-0">{{ category.name }}</h2>
+        </div>
+        <a href="#category-{{ category.id }}" class="see-all-link">عرض الكل ←</a>
       </div>
 
-      <div class="student-product-row">
+      <div class="products-horizontal-scroll">
         {% for item in category.items if item.available %}
-        <article class="student-product-card">
-          {% if category.show_image and menu_item_has_image(item) %}
-            <img src="{{ menu_item_image_src(item) }}" alt="{{ item.name }}" class="student-product-img" loading="lazy" decoding="async">
+        <article class="mini-product-card {% if not category.show_image %}mini-no-image{% endif %}">
+          {% if category.show_image and item.image_data %}
+            <img src="{{ url_for('menu_item_image', item_id=item.id) }}" alt="{{ item.name }}" class="mini-product-img">
           {% else %}
-            <div class="student-product-placeholder">{{ item.name[:1] }}</div>
+            <div class="mini-product-placeholder">{{ item.name[:1] }}</div>
           {% endif %}
-          <div class="student-product-body">
-            <h3>{{ item.name }}</h3>
-            <p>Arab Cafe - {{ category.name }}</p>
-            <div class="student-product-foot">
-              <button class="student-add-btn add-to-cart" data-id="{{ item.id }}" data-name="{{ item.name }}" data-price="{{ item.price }}" data-category-slug="{{ category.slug }}" type="button">+</button>
-              <strong>{{ '%.2f'|format(item.price) }} د.أ</strong>
+
+          <div class="mini-product-body">
+            <h3 class="mini-product-title">{{ item.name }}</h3>
+            {% if item.description %}
+            <p class="mini-product-desc">{{ item.description }}</p>
+            {% endif %}
+            <div class="mini-product-footer">
+              <strong class="mini-price">{{ '%.2f'|format(item.price) }} د.أ</strong>
+              <button class="mini-add-btn add-to-cart" data-id="{{ item.id }}" data-name="{{ item.name }}" data-price="{{ item.price }}" type="button">+</button>
             </div>
           </div>
         </article>
         {% else %}
-        <div class="student-empty-box">لا يوجد أصناف متاحة حاليًا في هذا القسم.</div>
+        <div class="empty-mini-row">لا يوجد أصناف متاحة حاليًا في هذا القسم.</div>
         {% endfor %}
       </div>
     </section>
     {% endfor %}
   </div>
 </section>
-
-<div class="student-bottom-nav">
-  <button type="button" class="bottom-nav-btn active" id="student-home-btn">
-    <span>⌂</span>
-    <strong>الرئيسية</strong>
-  </button>
-  <button type="button" class="bottom-nav-btn" id="cart-float-btn">
-    <span>️</span>
-    <strong>الطلبات</strong>
-    <em id="cart-count">0</em>
-  </button>
-</div>
-
-<div class="cart-added-toast" id="cart-added-toast">
-  <span></span>
-  <strong id="cart-toast-text">تمت الإضافة</strong>
-</div>
 
 <div class="cart-drawer-backdrop" id="cart-backdrop"></div>
 <aside class="cart-drawer" id="cart-drawer" aria-hidden="true">
@@ -71,7 +77,7 @@
         <h3 class="mb-1">سلة الطلب</h3>
         <div class="text-muted small">راجع طلبك ثم أرسله مباشرة.</div>
       </div>
-      <button type="button" class="cart-close-btn" id="cart-close-btn"></button>
+      <button type="button" class="cart-close-btn" id="cart-close-btn">✕</button>
     </div>
 
     <div id="cart-items" class="cart-items-box mb-3 text-muted">لسا ما أضفت أي منتج.</div>
@@ -108,7 +114,9 @@
         <textarea name="notes" class="form-control rounded-4" rows="3" placeholder="بدون بصل، زيادة جبنة..."></textarea>
       </div>
 
-      <button class="btn btn-dark btn-lg w-100 rounded-pill fw-bold" type="submit">تأكيد وإرسال الطلب</button>
+      <button class="btn btn-dark btn-lg w-100 rounded-pill fw-bold" type="submit">
+        تأكيد وإرسال الطلب
+      </button>
     </form>
   </div>
 </aside>
@@ -118,13 +126,8 @@
 <script src="{{ url_for('static', filename='js/cart.js') }}"></script>
 <script>
   document.addEventListener('DOMContentLoaded', function () {
-    const tabButtons = document.querySelectorAll('.student-category-tab');
-    const sections = document.querySelectorAll('.student-menu-section');
-    const homeBtn = document.getElementById('student-home-btn');
-
-    if (homeBtn) {
-      homeBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
-    }
+    const tabButtons = document.querySelectorAll('.category-tab-btn');
+    const sections = document.querySelectorAll('.menu-category-row');
 
     tabButtons.forEach((button) => {
       button.addEventListener('click', function () {
@@ -132,21 +135,23 @@
         tabButtons.forEach((btn) => btn.classList.remove('active'));
         this.classList.add('active');
         const targetSection = document.getElementById(targetId);
-        if (targetSection) window.scrollTo({ top: targetSection.offsetTop - 132, behavior: 'smooth' });
+        if (targetSection) {
+          window.scrollTo({ top: targetSection.offsetTop - 130, behavior: 'smooth' });
+        }
       });
     });
 
     const observer = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
-          const activeBtn = document.querySelector(`.student-category-tab[data-target="${entry.target.id}"]`);
+          const activeBtn = document.querySelector(`.category-tab-btn[data-target="${entry.target.id}"]`);
           if (activeBtn) {
             tabButtons.forEach((btn) => btn.classList.remove('active'));
             activeBtn.classList.add('active');
           }
         }
       });
-    }, { rootMargin: '-38% 0px -55% 0px', threshold: 0 });
+    }, { rootMargin: '-35% 0px -55% 0px', threshold: 0 });
 
     sections.forEach((section) => observer.observe(section));
   });

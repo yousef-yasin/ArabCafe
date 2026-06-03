@@ -41,3 +41,12 @@ python app.py
 - الصور تُخزن داخل الجداول كـ BLOB
 - تم وضع ملفات seed داخل مجلد `seed` فقط من أجل تعبئة قاعدة البيانات أول تشغيل
 - بعد أول تشغيل، عرض الصور في الموقع يكون من قاعدة البيانات عبر routes مثل `/media/item/...`
+
+
+### Printer routing
+Food orders print only to the food printer:
+```env
+FOOD_PRINTER_IP=192.168.1.100
+PRINTER_IPS=192.168.1.50,192.168.1.60,192.168.1.100
+PRINTER_PORT=9100
+```
