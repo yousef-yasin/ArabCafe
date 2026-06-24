@@ -14,7 +14,7 @@
     </div>
     <div class="admin-dashboard-brand text-end">
       <div class="d-flex align-items-center justify-content-end gap-2">
-        <span class="brand-cup">☕</span>
+        <span class="brand-cup"></span>
         <div>
           <div class="brand-title-ar">كافتيريا الجامعة</div>
           <small>طلبات مبنى {{ admin_building }} فقط</small>
@@ -36,10 +36,10 @@
 
   <div class="row g-3 mb-4 admin-stats-row">
     <div class="col-xl col-lg-3 col-md-4 col-6"><div class="stat-card admin-stat"><span class="stat-icon">◷</span><div><span>قيد الانتظار</span><strong>{{ stats.pending }}</strong></div></div></div>
-    <div class="col-xl col-lg-3 col-md-4 col-6"><div class="stat-card admin-stat"><span class="stat-icon">✓</span><div><span>تم تأكيدها</span><strong>{{ stats.confirmed }}</strong></div></div></div>
+    <div class="col-xl col-lg-3 col-md-4 col-6"><div class="stat-card admin-stat"><span class="stat-icon"></span><div><span>تم تأكيدها</span><strong>{{ stats.confirmed }}</strong></div></div></div>
     <div class="col-xl col-lg-3 col-md-4 col-6"><div class="stat-card admin-stat"><span class="stat-icon">⌂</span><div><span>جاهزة</span><strong>{{ stats.ready }}</strong></div></div></div>
     <div class="col-xl col-lg-3 col-md-4 col-6"><div class="stat-card admin-stat"><span class="stat-icon">×</span><div><span>ملغية</span><strong>{{ stats.cancelled }}</strong></div></div></div>
-    <div class="col-xl col-lg-3 col-md-4 col-6"><div class="stat-card admin-stat"><span class="stat-icon">☰</span><div><span>إجمالي الطلبات</span><strong>{{ stats.total_orders }}</strong></div></div></div>
+    <div class="col-xl col-lg-3 col-md-4 col-6"><div class="stat-card admin-stat"><span class="stat-icon"></span><div><span>إجمالي الطلبات</span><strong>{{ stats.total_orders }}</strong></div></div></div>
     <div class="col-xl col-lg-3 col-md-4 col-6"><div class="stat-card admin-stat"><span class="stat-icon">▣</span><div><span>مبيعات اليوم</span><strong>{{ '%.2f'|format(stats.sales_today) }} د.أ</strong></div></div></div>
     <div class="col-xl col-lg-3 col-md-4 col-6"><div class="stat-card admin-stat"><span class="stat-icon">⌽</span><div><span>المحظورين</span><strong>{{ stats.blocked_users }}</strong></div></div></div>
   </div>

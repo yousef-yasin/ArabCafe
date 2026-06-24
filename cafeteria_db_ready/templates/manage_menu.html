@@ -4,7 +4,7 @@
   <div class="dashboard-hero mb-4">
     <div>
       <h1 class="mb-2">إدارة المنيو</h1>
-      <p class="mb-0 text-white-50">كل اسم وسعر وصورة مخزنين داخل الداتا بيس، وصاحب الكافتيريا يقدر يعدلهم بأي وقت.</p>
+      <p class="mb-0 text-white-50">كل اسم وسعر وصورة بتتعدل من هون، والصور بتنضغط تلقائياً عشان صفحة الطلاب تفتح أسرع.</p>
     </div>
     <div class="d-flex gap-2 flex-wrap">
       <a href="{{ url_for('admin_dashboard') }}" class="btn btn-light rounded-pill px-4">رجوع للطلبات</a>
@@ -64,9 +64,9 @@
         <div class="col-12">
           <div class="item-card h-100 {% if not item.category.show_image %}no-image-card{% endif %}">
             <div class="row g-0 align-items-stretch">
-              {% if item.category.show_image and item.image_data %}
+              {% if item.category.show_image and menu_item_has_image(item) %}
               <div class="col-lg-4">
-                <img class="item-image h-100" src="{{ url_for('menu_item_image', item_id=item.id) }}" alt="{{ item.name }}">
+                <img class="item-image h-100" src="{{ menu_item_image_src(item) }}" alt="{{ item.name }}" loading="lazy" decoding="async">
               </div>
               {% endif %}
               <div class="col">
@@ -82,7 +82,7 @@
                   <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
                     <span class="status-pill {{ 'status-ready' if item.available else 'status-cancelled' }}">{{ 'متاح' if item.available else 'مخفي' }}</span>
                     {% if item.featured %}<span class="badge text-bg-warning rounded-pill">مميز</span>{% endif %}
-                    {% if item.image_data %}<span class="badge text-bg-dark rounded-pill">الصورة داخل DB</span>{% endif %}
+                    {% if menu_item_has_image(item) %}<span class="badge text-bg-success rounded-pill">صورة مضغوطة</span>{% endif %}
                   </div>
 
                   <form method="POST" action="{{ url_for('edit_menu_item', item_id=item.id) }}" enctype="multipart/form-data">
