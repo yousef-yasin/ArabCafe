@@ -56,9 +56,27 @@ def load_local_env_file():
 
 load_local_env_file()
 
+
+def resolve_database_uri():
+    """Use a managed database (e.g. Postgres on Render/Neon) when DATABASE_URL is
+    set, otherwise fall back to the local SQLite file for development."""
+    raw_url = (os.getenv('DATABASE_URL') or '').strip()
+    if not raw_url:
+        return f'sqlite:///{DB_PATH}'
+    # SQLAlchemy needs the postgresql:// scheme, some providers still hand out postgres://
+    if raw_url.startswith('postgres://'):
+        raw_url = 'postgresql://' + raw_url[len('postgres://'):]
+    # psycopg2 driver + require SSL for hosted Postgres like Neon
+    if raw_url.startswith('postgresql://') and 'sslmode=' not in raw_url:
+        raw_url += ('&' if '?' in raw_url else '?') + 'sslmode=require'
+    return raw_url
+
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-change-me')
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
+app.config['SQLALCHEMY_DATABASE_URI'] = resolve_database_uri()
+# pool_pre_ping keeps things working when a serverless Postgres drops idle connections.
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True, 'pool_recycle': 280}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024
 # Basic session hardening: prevents JavaScript from reading the admin session cookie.
@@ -463,6 +481,12 @@ MENU_DATA = [
 
 
 def apply_schema_fixes():
+    # These are hand-written ALTER statements for old SQLite files only.
+    # On a managed database (Postgres) db.create_all() already builds the full
+    # schema from the models, so there is nothing to patch.
+    if db.engine.dialect.name != 'sqlite':
+        return
+
     inspector = inspect(db.engine)
     if 'site_asset' not in inspector.get_table_names():
         SiteAsset.__table__.create(db.engine)
@@ -537,11 +561,7 @@ def seed_data():
             )
             db.session.add(category)
             db.session.flush()
-            img_filename = None
-            image_file = CATEGORY_IMAGE_FILES.get(cat_data['name'])
-            if image_file:
-                img_bytes, img_mime, original_filename = read_seed_file(image_file)
-                img_filename = _save_image_bytes_as_webp(img_bytes, original_filename) if img_bytes else None
+            img_filename = ensure_category_image_file(cat_data['name'])
 
             for idx, item in enumerate(cat_data['items']):
                 name, price = item[0], item[1]
@@ -558,19 +578,18 @@ def seed_data():
                     image_filename=img_filename if cat_data['show_image'] else None,
                 ))
     else:
-        # Backfill old databases so category images become optimized files, not DB blobs.
+        # Backfill items that never had any image with their shared category image.
         for item in MenuItem.query.filter((MenuItem.image_filename.is_(None)) & (MenuItem.image_data.is_(None)) & (MenuItem.category_id.is_not(None))).all():
-            image_file = CATEGORY_IMAGE_FILES.get(item.category.name)
-            if image_file and item.category.show_image:
-                img_bytes, img_mime, original_filename = read_seed_file(image_file)
-                saved_filename = _save_image_bytes_as_webp(img_bytes, original_filename) if img_bytes else None
-                if saved_filename:
-                    item.image_data = None
-                    item.image_mime_type = 'image/webp'
-                    item.image_filename = saved_filename
+            if not item.category or not item.category.show_image:
+                continue
+            saved_filename = ensure_category_image_file(item.category.name)
+            if saved_filename:
+                item.image_mime_type = 'image/webp'
+                item.image_filename = saved_filename
 
     db.session.commit()
     migrate_db_images_to_uploads()
+    restore_menu_image_files()
 
 @app.route(f'/{ADMIN_SECRET_PATH}/orders_partial')
 @admin_required
@@ -610,15 +629,15 @@ def _safe_upload_filename(original_name='menu-image'):
     return f"{stem[:40]}-{uuid.uuid4().hex[:12]}.webp"
 
 
-def _save_image_bytes_as_webp(raw_bytes, original_name='menu-image', max_size=(600, 450), quality=78):
-    """Compress any uploaded/seed image into a small WebP file in static/uploads/menu."""
+# On a managed database we keep menu images inside the DB so they survive a
+# server restart (Render's free disk is wiped on every restart/deploy).
+PERSIST_IMAGES_IN_DB = not app.config['SQLALCHEMY_DATABASE_URI'].startswith('sqlite')
+
+
+def _optimize_to_webp_bytes(raw_bytes, max_size=(600, 450), quality=78):
+    """Compress any image into small centered WebP bytes."""
     if not raw_bytes or Image is None:
         return None
-
-    os.makedirs(UPLOAD_MENU_DIR, exist_ok=True)
-    filename = _safe_upload_filename(original_name)
-    output_path = os.path.join(UPLOAD_MENU_DIR, filename)
-
     try:
         image = Image.open(BytesIO(raw_bytes))
         if ImageOps is not None:
@@ -630,19 +649,104 @@ def _save_image_bytes_as_webp(raw_bytes, original_name='menu-image', max_size=(6
         x = (max_size[0] - image.width) // 2
         y = (max_size[1] - image.height) // 2
         canvas.paste(image, (x, y))
-        canvas.save(output_path, 'WEBP', quality=quality, optimize=True, method=6)
-        return filename
+        out = BytesIO()
+        canvas.save(out, 'WEBP', quality=quality, optimize=True, method=6)
+        return out.getvalue()
     except Exception as exc:
         app.logger.exception('Failed to optimize menu image: %s', exc)
         return None
 
 
-def save_menu_image_upload(file_storage):
-    """Save admin uploaded image as optimized WebP and return only the filename for DB."""
-    if not file_storage or not file_storage.filename:
+def _save_image_bytes_as_webp(raw_bytes, original_name='menu-image', max_size=(600, 450), quality=78):
+    """Compress any uploaded/seed image into a small WebP file in static/uploads/menu."""
+    webp_bytes = _optimize_to_webp_bytes(raw_bytes, max_size=max_size, quality=quality)
+    if not webp_bytes:
         return None
+    os.makedirs(UPLOAD_MENU_DIR, exist_ok=True)
+    filename = _safe_upload_filename(original_name)
+    try:
+        with open(os.path.join(UPLOAD_MENU_DIR, filename), 'wb') as f:
+            f.write(webp_bytes)
+        return filename
+    except Exception as exc:
+        app.logger.exception('Failed to write menu image file: %s', exc)
+        return None
+
+
+def save_menu_image_upload(file_storage):
+    """Save an admin uploaded image as optimized WebP.
+
+    Returns (image_filename, image_data) ready to assign onto a MenuItem.
+    On a managed database the bytes are kept in the DB so the picture is not
+    lost when the server restarts; the file copy is just a fast local cache.
+    """
+    if not file_storage or not file_storage.filename:
+        return None, None
     raw_bytes = file_storage.read()
-    return _save_image_bytes_as_webp(raw_bytes, file_storage.filename)
+    filename = _save_image_bytes_as_webp(raw_bytes, file_storage.filename)
+    image_data = None
+    if PERSIST_IMAGES_IN_DB:
+        image_data = _optimize_to_webp_bytes(raw_bytes)
+    return filename, image_data
+
+
+def _stable_category_image_name(seed_filename):
+    return 'cat-' + os.path.splitext(os.path.basename(seed_filename))[0] + '.webp'
+
+
+def ensure_category_image_file(category_name):
+    """Return a stable WebP filename for a category's shared image, writing the
+    file from the bundled seed image if it is not on disk yet. The upload folder
+    lives on an ephemeral disk in production, so this runs on every boot."""
+    seed_filename = CATEGORY_IMAGE_FILES.get(category_name)
+    if not seed_filename:
+        return None
+    stable_name = _stable_category_image_name(seed_filename)
+    target_path = os.path.join(UPLOAD_MENU_DIR, stable_name)
+    if not os.path.exists(target_path):
+        raw_bytes, _mime, _orig = read_seed_file(seed_filename)
+        webp_bytes = _optimize_to_webp_bytes(raw_bytes) if raw_bytes else None
+        if not webp_bytes:
+            return None
+        os.makedirs(UPLOAD_MENU_DIR, exist_ok=True)
+        try:
+            with open(target_path, 'wb') as f:
+                f.write(webp_bytes)
+        except Exception as exc:
+            app.logger.exception('Failed to write category image %s: %s', stable_name, exc)
+            return None
+    return stable_name
+
+
+def restore_menu_image_files():
+    """Re-materialize menu image files referenced by the DB but missing from the
+    ephemeral disk: rewrite uploaded pictures from their DB blob, regenerate
+    shared category images from seed, and drop references we cannot restore."""
+    changed = False
+    for item in MenuItem.query.filter(MenuItem.image_filename.is_not(None)).all():
+        file_path = os.path.join(UPLOAD_MENU_DIR, item.image_filename)
+        if os.path.exists(file_path):
+            continue
+        if item.image_data:
+            os.makedirs(UPLOAD_MENU_DIR, exist_ok=True)
+            try:
+                with open(file_path, 'wb') as f:
+                    f.write(item.image_data)
+                continue
+            except Exception:
+                pass
+        restored = ensure_category_image_file(item.category.name) if item.category else None
+        if restored:
+            if restored != item.image_filename:
+                item.image_filename = restored
+                item.image_mime_type = 'image/webp'
+                changed = True
+        elif not item.image_data:
+            item.image_filename = None
+            item.image_mime_type = None
+            changed = True
+    if changed:
+        db.session.commit()
 
 
 def menu_item_has_image(item):
@@ -664,8 +768,12 @@ def menu_item_image_src(item):
 
 
 def migrate_db_images_to_uploads():
-    """Move old DB BLOB images to optimized WebP files so pages load faster."""
-    if Image is None:
+    """Move old DB BLOB images to optimized WebP files so pages load faster.
+
+    Skipped on a managed database: there the DB blob is the durable copy of the
+    picture (the upload folder is wiped on every restart), so we keep it and let
+    restore_menu_image_files() rebuild the fast local file cache instead."""
+    if Image is None or PERSIST_IMAGES_IN_DB:
         return
     changed = False
     for item in MenuItem.query.filter(MenuItem.image_data.is_not(None)).all():
@@ -731,6 +839,12 @@ def blocked_notice():
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
     return response
+
+
+@app.route('/healthz')
+def healthz():
+    """Lightweight endpoint for an external uptime pinger (keeps the free host awake)."""
+    return 'ok', 200
 
 
 @app.route('/')
@@ -1037,7 +1151,7 @@ def manage_menu():
             price_raw = request.form.get('price', '0').strip()
             category_id = request.form.get('category_id')
             featured = request.form.get('featured') == '1'
-            image_filename = save_menu_image_upload(request.files.get('image_file'))
+            image_filename, image_data = save_menu_image_upload(request.files.get('image_file'))
             if not name or not category_id:
                 flash('الرجاء تعبئة اسم الصنف والقسم.', 'danger')
                 return redirect(url_for('manage_menu'))
@@ -1053,8 +1167,8 @@ def manage_menu():
                 category_id=int(category_id),
                 featured=featured,
                 available=True,
-                image_data=None,
-                image_mime_type='image/webp' if image_filename else None,
+                image_data=image_data,
+                image_mime_type='image/webp' if (image_filename or image_data) else None,
                 image_filename=image_filename,
             ))
             db.session.commit()
@@ -1094,8 +1208,8 @@ def edit_menu_item(item_id):
     item.featured = featured
     item.available = available
 
-    image_filename = save_menu_image_upload(request.files.get('image_file'))
-    if image_filename:
+    image_filename, image_data = save_menu_image_upload(request.files.get('image_file'))
+    if image_filename or image_data:
         if item.image_filename:
             old_path = os.path.join(UPLOAD_MENU_DIR, item.image_filename)
             if os.path.exists(old_path):
@@ -1103,7 +1217,7 @@ def edit_menu_item(item_id):
                     os.remove(old_path)
                 except Exception:
                     pass
-        item.image_data = None
+        item.image_data = image_data
         item.image_mime_type = 'image/webp'
         item.image_filename = image_filename
     elif remove_image:
